@@ -20,7 +20,7 @@
 
 #define NL_SETN         10
 
-#define SAFE_JID_GAP 100
+#define SAFE_JID_GAP 0
 #define NULL_RES     "NRR"
 #define NULL_HOST    "NULL_HOST"
 #define SKIPSPACE(sp)      while (isspace(*(sp))) (sp)++;
