@@ -5485,7 +5485,7 @@ donios_sock(struct child **children, int op)
                 }
                 xdr_destroy(&xdrs);
 
-                rtag = msgHdr.reserved;
+                rtag = 0;
 
                 switch(msgHdr.opCode) {
                     case NIOS2RES_STDIN:
