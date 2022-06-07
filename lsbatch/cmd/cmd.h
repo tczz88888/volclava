@@ -44,6 +44,7 @@
 
 #define LONG_FORMAT     1
 #define WIDE_FORMAT     2
+#define UF_FORMAT       3
 
 #define QUEUE_HIST      1
 #define HOST_HIST       2
@@ -84,18 +85,26 @@ struct histReq {
 extern void prtLine(char *);
 extern char *get_status(struct jobInfoEnt *job);
 extern void prtHeader(struct jobInfoEnt *, int, int);
+extern void prtHeaderUF(struct jobInfoEnt *, int, int);
 extern void prtJobSubmit(struct jobInfoEnt *, int, int);
+extern void prtJobSubmitUF(struct jobInfoEnt *, int, int);
 extern void prtFileNames(struct jobInfoEnt *, int);
+extern void prtFileNamesUF(struct jobInfoEnt *, int);
 extern void prtSubDetails(struct jobInfoEnt *, char *, float);
+extern void prtSubDetailsUF(struct jobInfoEnt *, char *, float);
 extern void prtJobStart(struct jobInfoEnt *, int, int, int);
+extern void prtJobStartUF(struct jobInfoEnt *, int, int, int);
 extern void prtJobFinish(struct jobInfoEnt *, struct jobInfoHead *);
+extern void prtJobFinishUF(struct jobInfoEnt *, struct jobInfoHead *);
 extern void prtAcctFinish(struct jobInfoEnt *);
 extern struct loadIndexLog *initLoadIndex(void);
 extern int fillReq (int, char **, int, struct submit *);
 extern void prtErrMsg (struct submit *, struct submitReply *);
 extern void prtBTTime(struct jobInfoEnt *);
 extern void prtJobReserv(struct jobInfoEnt *);
+extern void prtJobReservUF(struct jobInfoEnt *);
 extern void displayLong (struct jobInfoEnt *, struct jobInfoHead *, float);
+extern void displayUF (struct jobInfoEnt *, struct jobInfoHead *, float);
 
 extern int lsbMode_;
 

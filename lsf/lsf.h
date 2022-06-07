@@ -77,7 +77,7 @@ typedef unsigned long long LS_UNS_LONG_INT;
 #define OPENLAVA_VERSION   20
 
 #define LSF_DEFAULT_SOCKS       15
-#define MAXLINELEN              512
+#define MAXLINELEN              PATH_MAX
 #define MAXLSFNAMELEN           40
 #define MAXSRES                 32
 #define MAXRESDESLEN            256
@@ -86,7 +86,7 @@ typedef unsigned long long LS_UNS_LONG_INT;
 #define MAXMODELS               128
 #define MAXTYPES_31             25
 #define MAXMODELS_31            30
-#define MAXFILENAMELEN          256
+#define MAXFILENAMELEN          PATH_MAX
 
 #define FIRST_RES_SOCK  20
 
