@@ -31,7 +31,7 @@
 #define ut_name   ut_user
 
 static char buffer[MSGSIZE];
-static long long int main_mem, free_mem, shared_mem, buf_mem, cashed_mem;
+static long long int main_mem, free_mem, shared_mem, buf_mem, cached_mem;
 static long long int swap_mem, free_swap;
 
 #define nonuser(ut) ((ut).ut_type != USER_PROCESS)
@@ -211,7 +211,7 @@ realMem(float extrafactor)
     if (readMeminfo() == -1)
         return(0);
 
-    realmem = (free_mem + buf_mem + cashed_mem) / 1024;
+    realmem = (free_mem + cached_mem) / 1024;
 
     realmem -= 2;
     realmem +=  extraload[MEM] * extrafactor;
@@ -358,7 +358,7 @@ readMeminfo(void)
         if (strcmp(tag, "Buffers:") == 0)
             buf_mem = value;
         if (strcmp(tag, "Cached:") == 0)
-            cashed_mem = value;
+            cached_mem = value;
         if (strcmp(tag, "SwapTotal:") == 0)
             swap_mem = value;
         if (strcmp(tag, "SwapFree:") == 0)
