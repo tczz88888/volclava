@@ -553,7 +553,7 @@ logProcessInfo(void)
         pidLink[i].sibling = -2;
     }
 
-    sortPids();
+//    sortPids();
 
     if (lstat(workFN, &st) < 0) {
         if (errno == ENOENT) {
@@ -581,6 +581,16 @@ logProcessInfo(void)
 
     fprintf(fp, "%d\n", pimPort);
 
+    for (i = 0; i < nr_of_processes; i++) {
+
+        fprintf(fp, "%d %d %d %d %d %d %d %d %d %d %d %d\n",
+                pbase[i].pid, pbase[i].ppid, pbase[i].pgid, pbase[i].jobid,
+                pbase[i].utime, pbase[i].stime, pbase[i].cutime,
+                pbase[i].cstime, pbase[i].proc_size,
+                pbase[i].resident_size, pbase[i].stack_size,
+                (int) pbase[i].status);
+    }
+/*
     for (pIdx = 0; pIdx < sortedIdx; pIdx++) {
         i = pidLink[pIdx].sortedIdx;
 
@@ -600,6 +610,7 @@ logProcessInfo(void)
             deadPid[i].resident_size, deadPid[i].stack_size,
             (int) deadPid[i].status);
     }
+*/
 
     fclose(fp);
 
