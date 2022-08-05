@@ -992,12 +992,12 @@ getLsbUsable(void)
     INC_CNT(PROF_CNT_getLsbUsable);
 
     nLsbUsable = numReasons = ldReason = 0;
-    i = 0;
+
     for (hPtr = (struct hData *)hostList->back;
          hPtr != (void *)hostList;
          hPtr = hPtr->back) {
 
-        ++i;
+        i = hPtr->hostId;
         hReason = 0;
         if (hPtr->hStatus & HOST_STAT_REMOTE)
             continue;
@@ -1093,12 +1093,11 @@ getQUsable(struct qData *qp)
         return 0;
     }
 
-    i = 0;
     for (hPtr = (struct hData *)hostList->back;
          hPtr != (void *)hostList;
          hPtr = hPtr->back) {
 
-        ++i;
+        i = hPtr->hostId;
         if (hReasonTb[1][i])
             continue;
 
@@ -1264,12 +1263,11 @@ getJUsable(struct jData *jp, int *numJUsable, int *nProc)
     numHosts = 0;
     numReasons = 0;
 
-    i = 0;
     for (hPtr = (struct hData *)hostList->back;
          hPtr != (void *)hostList;
          hPtr = hPtr->back) {
 
-        ++i;
+        i = hPtr->hostId;
 
         INC_CNT(PROF_CNT_firstLoopgetJUsable);
 
