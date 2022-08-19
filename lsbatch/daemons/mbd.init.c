@@ -62,7 +62,8 @@ static struct hostConf *hostConf = NULL;
 static struct queueConf *queueConf = NULL;
 static struct paramConf *paramConf = NULL;
 struct gData *tempUGData[MAX_GROUPS], *tempHGData[MAX_GROUPS];
-int nTempUGroups = 0, nTempHGroups = 0;
+static int nTempUGroups;
+static int nTempHGroups;
 
 static char batchName[MAX_LSB_NAME_LEN] = "root";
 
@@ -131,6 +132,8 @@ static void getMaxCpufactor(void);
 static int parseFirstHostErr(int , char *, char *, struct qData *, struct askedHost *, int );
 
 static struct hData *mkLostAndFoundHost(void);
+static void copyHostGroups();
+static void copyUserGroups();
 
 int
 minit(int mbdInitFlags)
@@ -270,6 +273,7 @@ minit(int mbdInitFlags)
      */
     getLsbHostLoad();
     updHostList();
+    copyHostGroups();
 
     if ((hPtr = getHostData(masterHost)) == NULL) {
         ls_syslog(LOG_ERR, "\
@@ -288,6 +292,8 @@ minit(int mbdInitFlags)
 
     TIMEIT(0, readUserConf(mbdInitFlags), "minit_readUserConf");
     TIMEIT(0, readQueueConf(mbdInitFlags), "minit_readQueueConf");
+    copyUserGroups();
+
     updUserList(mbdInitFlags);
     updQueueList();
 
@@ -3328,4 +3334,43 @@ parseFirstHostErr(int returnErr, char *fname, char *hosts, struct qData *qp, str
         return 0;
     } else
         return 1;
+}
+
+static void
+copyHostGroups()
+{
+    int i;
+
+    for (i = 0; i < numofhgroups; i++) {
+        if (hostgroups[i] == NULL)
+            continue;
+        freeGrp (hostgroups[i]);
+    }
+
+    for (i = 0; i < nTempHGroups; i++)
+        hostgroups[i] = tempHGData[i];
+    numofhgroups = nTempHGroups;
+    nTempHGroups = 0;
+    return;
+}
+
+
+static void
+copyUserGroups()
+{
+    int i;
+
+    for (i = 0; i < numofugroups; i++) {
+        if (usergroups[i] == NULL)
+            continue;
+        freeGrp (usergroups[i]);
+    }
+
+    for (i = 0; i < nTempUGroups; i++) {
+        usergroups[i] = tempUGData[i];
+        tempUGData[i] = NULL;
+    }
+    numofugroups = nTempUGroups;
+    nTempUGroups = 0;
+    return;
 }
