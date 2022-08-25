@@ -46,18 +46,17 @@ main (int argc, char **argv)
 	exit(-1);
     }
 
-    while ((cc = getopt(argc, argv, "Vh")) != EOF) {
-        switch (cc) {
+    if (argc > 1 && '-' == argv[1][0]) {
+        switch(argv[1][1]) {
             case 'V':
                 fputs(_LS_VERSION_, stderr);
                 exit(0);
             case 'h':
             default:
-
-
                 cmdsUsage("badmin", cmdList, _i18n_msgArray_get( ls_catd, NL_SETN, cmdInfo_ID, cmdInfo) );
         }
     }
+
     if (argc > optind) {
         int rc;
 
