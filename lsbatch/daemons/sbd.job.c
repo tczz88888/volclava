@@ -283,6 +283,7 @@ execJob(struct jobCard *jobCardPtr, int chfd)
 {
     static char fname[] = "execJob";
     int i;
+    int rc;
     struct jobSpecs *jobSpecsPtr;
     struct hostent *fromHp;
     struct lenData jf;
@@ -308,10 +309,11 @@ execJob(struct jobCard *jobCardPtr, int chfd)
         || !PURE_INTERACTIVE(jobSpecsPtr)) {
 
         xdrmem_create(&xdrs, buf, MSGSIZE, XDR_DECODE);
-        if (readDecodeHdr_(chfd, buf, chanRead_, &xdrs, &replyHdr) < 0) {
+        rc = readDecodeHdr_(chfd, buf, chanRead_, &xdrs, &replyHdr);
+        if (rc < 0) {
             ls_syslog(LOG_WARNING, "\
-%s: Fail to get go-ahead from mbatchd; abort job %s",
-                      fname, lsb_jobid2str(jobSpecsPtr->jobId));
+%s: Fail to get go-ahead from mbatchd; abort job %s; readDecodeHdr_: %d",
+                      fname, lsb_jobid2str(jobSpecsPtr->jobId), rc);
 
             jobSetupStatus(JOB_STAT_PEND, PEND_JOB_START_FAIL, jobCardPtr);
         }
