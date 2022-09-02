@@ -155,7 +155,7 @@ status_job(mbdReqType reqType,
         lsb_merr2( I18N_FUNC_FAIL, fname, "xdr_statusReq");
         xdr_destroy(&xdrs);
         FREEUP(request_buf);
-        relife();
+        relife(fname, "xdr_statusReq");
     }
 
     flags = CALL_SERVER_NO_HANDSHAKE;
@@ -682,7 +682,7 @@ sendUnreportedStatus (struct chunkStatusReq *chunkStatusReq)
         lsb_merr2( I18N_FUNC_FAIL, fname, "xdr_chunkStatusReq");
         xdr_destroy(&xdrs);
         FREEUP(request_buf);
-        relife();
+        relife(fname, "xdr_chunkStatusReq");
     }
 
     flags = CALL_SERVER_NO_HANDSHAKE;

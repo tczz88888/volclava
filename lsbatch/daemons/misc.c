@@ -342,11 +342,13 @@ daemon_doinit(void)
 
 
 void
-relife(void)
+relife(char *call_func, char *call_reason)
 {
     int pid;
     char *margv[6];
     int i = 0;
+
+    ls_syslog(LOG_DEBUG, "relife: call_func <%s> call_reason %d ...", call_func, call_reason);
 
     pid = fork();
 

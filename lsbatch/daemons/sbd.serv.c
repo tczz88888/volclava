@@ -174,7 +174,7 @@ sendReply:
 	ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_jobReply");
 	lsb_merr(_i18n_msg_get(ls_catd , NL_SETN, 5804,
 			       "Fatal error: xdr_jobReply() failed; sbatchd relifing")); /* catgets 5804 */
-	relife();
+	relife(fname, "xdr_jobReply failed");
     }
 	
     if (chanWrite_(chfd, reply_buf, XDR_GETPOS(&xdrs2)) <= 0) {
@@ -347,7 +347,7 @@ sendReply:
 	ls_syslog(LOG_ERR, I18N_JOB_FAIL_S_M, fname, 
 		  lsb_jobid2str(jp->jobSpecs.jobId), 
 		  "xdr_jobReply");
-	relife();
+	relife(fname, "xdr_jobReply");
     }
     
     if (chanWrite_(chfd, reply_buf, XDR_GETPOS(&xdrs2)) <= 0) {
@@ -477,7 +477,7 @@ sendReply:
 	ls_syslog(LOG_ERR, I18N_JOB_FAIL_S_M, fname, 
 		  lsb_jobid2str(jp->jobSpecs.jobId), 
 		  "xdr_jobReply");
-	relife();
+	relife(fname, "xdr_jobReply");
     }
     
     if (chanWrite_(chfd, reply_buf, XDR_GETPOS(&xdrs2)) <= 0) {
@@ -511,7 +511,7 @@ do_probe(XDR * xdrs, int chfd, struct LSFHeader * reqHdr)
 
     if (!xdr_sbdPackage(xdrs, &sbdPackage, reqHdr)) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_sbdPackage");
-        relife();
+        relife(fname, "xdr_sbdPackage");
     } else {
         if (sbdPackage.numJobs) {
             jobSpecs = my_calloc(sbdPackage.numJobs,
@@ -533,7 +533,7 @@ do_probe(XDR * xdrs, int chfd, struct LSFHeader * reqHdr)
     if (replyHdr.opCode == ERR_NO_ERROR)
 	if (!xdr_sbdPackage1(xdrs, &sbdPackage, reqHdr)) {
 	    ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_sbdPackage1");
-	    relife();
+	    relife(fname, "xdr_sbdPackage1");
 	}
     if (replyHdr.opCode == ERR_NO_ERROR) {
         if (myStatus & NO_LIM) {
@@ -544,7 +544,7 @@ do_probe(XDR * xdrs, int chfd, struct LSFHeader * reqHdr)
 
     if (!xdr_encodeMsg(&xdrs2, NULL, &replyHdr, NULL, 0, auth)) {
 	ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
-	relife();
+	relife(fname, "xdr_encodeMsg");
     }
 
     if (chanWrite_(chfd, reply_buf, XDR_GETPOS(&xdrs2)) <= 0) {
@@ -724,7 +724,7 @@ Reply1:
     if (!xdr_encodeMsg(&xdrs2, replyStruct, &replyHdr, xdr_jobReply, 0, auth)) {
         ls_syslog(LOG_ERR, I18N_JOB_FAIL_S_M, fname, 
                   lsb_jobid2str(jp->jobSpecs.jobId), "xdr_jobReply");
-        relife();
+        relife(fname, "xdr_jobReply");
     }
     
     if (chanWrite_(chfd, reply_buf, XDR_GETPOS(&xdrs2)) <= 0) {
@@ -916,19 +916,19 @@ do_reboot(XDR * xdrs, int chfd, struct LSFHeader * reqHdr)
     if (!xdr_encodeMsg(&xdrs2, (char *) 0, &replyHdr, 0, 0, NULL)) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
         xdr_destroy(&xdrs2);
-        relife();
+        relife(fname, "xdr_encodeMsg");
         return;
     }
 
     if (chanWrite_(chfd, reply_buf, XDR_GETPOS(&xdrs2)) <= 0) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "chanWrite_");
         xdr_destroy(&xdrs2);
-        relife();
+        relife(fname, "chanWrite_");
         return;
     }
     ls_syslog(LOG_NOTICE, _i18n_msg_get(ls_catd , NL_SETN, 5828,
                                         "Slave batch daemon reboot command received")); /* catgets 5828 */
-    relife();
+    relife(fname, "Slave batch daemon reboot");
     ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5829,
                                      "Unable to relife during rebooting: %m")); /* catgets 5829 */
     xdr_destroy(&xdrs2);
@@ -1125,7 +1125,7 @@ do_shutdown(XDR * xdrs, int chfd, struct LSFHeader * reqHdr)
     if (!xdr_encodeMsg(&xdrs2, (char *) 0, &replyHdr, 0, 0, NULL)) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
         xdr_destroy(&xdrs2);
-        relife();
+        relife(fname, "xdr_encodeMsg");
         return;
     }
 
@@ -1134,7 +1134,7 @@ do_shutdown(XDR * xdrs, int chfd, struct LSFHeader * reqHdr)
                                          "%s: Sending shutdown reply to master failed: %m"), /* catgets 5835 */
                   fname);
         xdr_destroy(&xdrs2);
-        relife();
+        relife(fname, "reply to master failed");
         return;
     }
     xdr_destroy(&xdrs2);

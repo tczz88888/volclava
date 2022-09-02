@@ -515,7 +515,7 @@ extern int portok(struct sockaddr_in *from);
 extern char *safeSave(char *);
 extern void lsb_mperr(char *msg);
 extern void mclose(FILE *file);
-extern void relife(void);
+extern void relife(char *call_func, char *call_reason);
 extern int getElock(void);
 extern int touchElock(void);
 extern void getElogLock(void);

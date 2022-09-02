@@ -1224,7 +1224,7 @@ status_report (void)
             ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5418,
                                              "%s: Illegal job status <%d> of job <%s> found; re-life"), /* catgets 5418 */
                       fname, jp->jobSpecs.jStatus, lsb_jobid2str(jp->jobSpecs.jobId));
-            relife();
+            relife(fname, "Illegal job status");
         }
 
         if (logclass & LC_TRACE)

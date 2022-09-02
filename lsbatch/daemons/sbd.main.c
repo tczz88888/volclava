@@ -420,7 +420,7 @@ main (int argc, char **argv)
 	if (sbdSleepTime < 0) {
 	    ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5004,
 		"%s: Sleep time <%d> is not a non-negative integer; re-life"), fname, sbdSleepTime); /* catgets 5004 */
-	    relife();
+	    relife(fname, " Sleep time");
 	}
         timeout.tv_sec = sbdSleepTime;
 	sigemptyset(&newmask);

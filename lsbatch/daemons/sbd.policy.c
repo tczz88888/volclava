@@ -221,9 +221,9 @@ job_checking (void)
 	    
 	    ls_syslog(LOG_INFO, I18N_FUNC_FAIL_MM, fname, "ls_loadofhosts");
 	if (lserrno == LSE_LIM_BADHOST)
-	    relife();               
+	    relife(fname, "LSE_LIM_BADHOST");
 	if (lserrno == LSE_BAD_XDR)
-	    relife();                         
+	    relife(fname, "LSE_BAD_XDR");
 	if (lserrno == LSE_LIM_DOWN || lserrno == LSE_TIME_OUT) {
 	    myStatus |= NO_LIM;
 
@@ -372,9 +372,9 @@ tryResume (struct hostLoad *myload)
 			      "ls_loadofhosts");
                 errCount++;
 		if (lserrno == LSE_LIM_BADHOST)
-		    relife();       
+		    relife(fname, "LSE_LIM_BADHOST");
 		if (lserrno == LSE_BAD_XDR)
-		    relife();             
+		    relife(fname, "LSE_BAD_XDR");
 		if (lserrno == LSE_LIM_DOWN || lserrno == LSE_TIME_OUT)
 		    myStatus |= NO_LIM;
 		continue;
@@ -453,9 +453,9 @@ tryStop (char *myhostnm, struct hostLoad *myload)
 			      "ls_loadofhosts");
 		errCount++;
                 if (lserrno == LSE_LIM_BADHOST)
-                    relife();       
+                    relife(fname, "LSE_LIM_BADHOST");
 		if (lserrno == LSE_BAD_XDR)
-	            relife();             
+	            relife(fname, "LSE_BAD_XDR");
 		if (lserrno == LSE_LIM_DOWN || lserrno == LSE_TIME_OUT)
 		    myStatus |= NO_LIM;
 		continue;
