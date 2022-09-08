@@ -198,14 +198,14 @@ child_handler (int sig)
 			errno = 0;
 			sbd_finish_sleep = atoi(daemonParams[LSB_SBD_FINISH_SLEEP].paramValue);
 			if (errno)
-			    sbd_finish_sleep = 1000;    
+			    sbd_finish_sleep = 1000;
 		    } else {
 			sbd_finish_sleep=1000;
 		    }
 		}
-		if (sbd_finish_sleep > 0) {
-		    millisleep_(sbd_finish_sleep);
-		}
+//		if (sbd_finish_sleep > 0) {
+//		    millisleep_(sbd_finish_sleep);
+//		}
 
 		if (logclass & LC_EXEC) {
 		    ls_syslog(LOG_DEBUG, I18N(5605,
