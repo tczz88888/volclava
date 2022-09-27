@@ -644,6 +644,12 @@ hStatChange(struct hData *hp, int newStatus)
     ls_syslog(LOG_DEBUG,"\
 %s: host=%s newStatus=%d", __func__, hp->host, newStatus);
 
+    // update host info while update host state.
+    // since some start up order issue would cause compute node maxCpus late to sync with master,
+    // and then when 'bhost' shows host 'ok' while its MXJ still is 1 due to no maxCpus info.
+    // so when update host state, fetch host info again.
+    getLsbHostInfo();
+
     hp->pollTime = now;
 
     if ((hp->hStatus & HOST_STAT_UNREACH)
