@@ -425,7 +425,7 @@ rm -rf ${_openlavatop}
 %attr(0755,openlava,openlava) %{_openlavatop}/work/logdir
 
 %changelog
-* Mon Jan 23 Releasing openlava 2.0
+* Mon Jan 23 2012 Releasing openlava 2.0
 * Sun Oct 30 2011 modified the spec file so that autoconf creates
 - openlava configuration files and use the outptu variables to make
 - the necessary subsititution in the them. Change the post install
