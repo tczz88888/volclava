@@ -248,6 +248,10 @@ install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/man8/sbatchd.8  $RPM_BU
 # set variables
 #
 _openlavatop=${RPM_INSTALL_PREFIX}/openlava-%{version}
+#_openlavatop_trans=%(echo ${RPM_INSTALL_PREFIX}/openlava-%{version} | sed 's:/:\\/:g')
+#echo ${_openlavatop}
+#echo ${_openlavatop_trans}
+
 # create the symbolic links
 ln -sf ${_openlavatop}/bin/bkill  ${_openlavatop}/bin/bstop
 ln -sf ${_openlavatop}/bin/bkill  ${_openlavatop}/bin/bresume
@@ -258,6 +262,9 @@ chown -h openlava:openlava ${_openlavatop}/bin/bresume
 chown -h openlava:openlava ${_openlavatop}/bin/bchkpnt
 chown -h openlava:openlava ${_openlavatop}/bin/bugroup
 #
+sed -i "s:/opt/openlava-2.0:${_openlavatop}:g" ${_openlavatop}/etc/openlava.sh
+sed -i "s:/opt/openlava-2.0:${_openlavatop}:g" ${_openlavatop}/etc/openlava.csh
+sed -i "s:/opt/openlava-2.0:${_openlavatop}:g" ${_openlavatop}/etc/openlava
 cp ${_openlavatop}/etc/openlava.sh %{_sysconfdir}/profile.d
 cp ${_openlavatop}/etc/openlava.csh %{_sysconfdir}/profile.d
 cp ${_openlavatop}/etc/openlava %{_sysconfdir}/init.d
