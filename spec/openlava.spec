@@ -265,9 +265,9 @@ chown -h openlava:openlava ${_openlavatop}/bin/bugroup
 sed -i "s:/opt/openlava-2.0:${_openlavatop}:g" ${_openlavatop}/etc/openlava.sh
 sed -i "s:/opt/openlava-2.0:${_openlavatop}:g" ${_openlavatop}/etc/openlava.csh
 sed -i "s:/opt/openlava-2.0:${_openlavatop}:g" ${_openlavatop}/etc/openlava
-cp ${_openlavatop}/etc/openlava.sh %{_sysconfdir}/profile.d
-cp ${_openlavatop}/etc/openlava.csh %{_sysconfdir}/profile.d
-cp ${_openlavatop}/etc/openlava %{_sysconfdir}/init.d
+/usr/bin/cp --backup=numbered ${_openlavatop}/etc/openlava.sh %{_sysconfdir}/profile.d
+/usr/bin/cp --backup=numbered ${_openlavatop}/etc/openlava.csh %{_sysconfdir}/profile.d
+/usr/bin/cp --backup=numbered  ${_openlavatop}/etc/openlava %{_sysconfdir}/init.d
 
 # Register lava daemons
 /sbin/chkconfig --add openlava
