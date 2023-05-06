@@ -902,12 +902,18 @@ prtJobRusage(struct jobInfoEnt *job)
 
             }
         }
-        sprintf(prline, "\n");
-        printf("%s", prline);
+
     }
     sprintf(prline, "\n");
     printf("%s", prline);
 
+    if (job->runRusage.mem > 0) {
+        printf ("\n MEMORY USAGE:\n");
+        if (job->runRusage.mem > 1024)
+            printf(" MAX MEM: %d Mbytes;  AVG MEM: %d Mbytes\n", job->runRusage.mem/1024, job->runRusage.mem/1024);
+        else
+            printf(" MAX MEM: %d Kbytes;  AVG MEM: %d Kbytes\n", job->runRusage.mem, job->runRusage.mem);
+    }
 }
 
 void
@@ -1011,6 +1017,9 @@ displayLong (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
 			     job->nIdx, lsInfo) < 0)
 	    exit (-1);
     }
+
+    printf ("\n RESOURCE REQUIREMENT DETAILS:\n");
+    printf (" Combined: %s\n Effective: %s\n", job->submit.resReq, job->submit.resReq);
 
     return;
 }
@@ -1657,7 +1666,10 @@ prtJobRusageUF(struct jobInfoEnt *job)
 
     if (job->runRusage.mem > 0) {
         printf ("\n MEMORY USAGE:\n");
-        printf (" MAX MEM: N/A MBytes;  AVG MEM: N/A MBytes\n");
+        if (job->runRusage.mem > 1024)
+            printf(" MAX MEM: %d Mbytes;  AVG MEM: %d Mbytes\n", job->runRusage.mem/1024, job->runRusage.mem/1024);
+        else
+            printf(" MAX MEM: %d Kbytes;  AVG MEM: %d Kbytes\n", job->runRusage.mem, job->runRusage.mem);
     }
 
 }
