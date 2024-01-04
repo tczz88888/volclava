@@ -382,7 +382,7 @@ prtQueuesLong(int numQueues, struct queueInfoEnt *queueInfo)
         if (lsbMode_ & LSB_MODE_BATCH) {
             if ( strcmp(qp->userList, " ") == 0) {
                 printf("\n%s:  %s\n", I18N_USERS,
-                       I18N(408, "all users")); /* catgets 408 */
+                       I18N(408, "all")); /* catgets 408 */
             } else {
                 if (strcmp(qp->userList, " ") != 0 && qp->userList[0] != 0)
                     printf("\n%s: %s\n", I18N_USERS, qp->userList);
@@ -392,7 +392,7 @@ prtQueuesLong(int numQueues, struct queueInfoEnt *queueInfo)
         if (strcmp(qp->hostList, " ") == 0) {
             if (lsbMode_ & LSB_MODE_BATCH)
                 printf("%s\n",
-                       (_i18n_msg_get(ls_catd,NL_SETN,1235, "HOSTS:  all hosts used by the LSF Batch system"))); /* catgets  1235  */
+                       (_i18n_msg_get(ls_catd,NL_SETN,1235, "HOSTS:  all"))); /* catgets  1235  */
             else
                 printf("%s\n",
                        (_i18n_msg_get(ls_catd,NL_SETN,1236, "HOSTS: all hosts used by the LSF JobScheduler system"))); /* catgets  1236  */
