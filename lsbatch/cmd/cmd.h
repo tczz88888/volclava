@@ -45,6 +45,7 @@
 #define LONG_FORMAT     1
 #define WIDE_FORMAT     2
 #define UF_FORMAT       3
+#define O_FORMAT        4
 
 #define QUEUE_HIST      1
 #define HOST_HIST       2

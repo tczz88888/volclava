@@ -34,10 +34,12 @@ extern int sig_decode(int);
 extern char *get_status(struct jobInfoEnt *job);
 
 static void do_options(int, char **, int *, char **, char **,
-                       char **, char **, float *, int *, char **);
+                       char **, char **, float *, int *, char **, char **);
 static int  skip_job(struct jobInfoEnt *);
 static void displayJobs(struct jobInfoEnt *, struct jobInfoHead *,
                         int, int);
+static void displayO(struct jobInfoEnt *, struct jobInfoHead *,
+                        int, int, char*);
 
 static LS_LONG_INT *usrJids;
 static int *numJobs;
@@ -66,7 +68,7 @@ usage (char *cmd)
     fprintf(stderr, I18N_Usage);
 
     fprintf(stderr, \
-": %s [-h] [-V] [-w |-l |-UF] [-a] [-d] [-p] [-s] [-r]", cmd);
+": %s [-h] [-V] [-w |-l |-UF] [-a] [-d] [-p] [-s] [-r] [-o]", cmd);
 
     if (lsbMode_ == LSB_MODE_BATCH)
         fprintf(stderr, " [-A]\n");
@@ -98,6 +100,7 @@ main (int argc, char **argv)
     char *host = NULL;
     char *realUser = NULL;
     char *projectName = NULL;
+    char *fieldName = NULL;
     int  format = 0;
     struct jobInfoHead *jInfoH;
     struct jobInfoEnt *job;
@@ -118,7 +121,7 @@ main (int argc, char **argv)
     }
 
 
-    TIMEIT(0, do_options(argc, argv, &options, &user, &queue, &host, &jobName, &cpuFactor, &format, &projectName), "do_options");
+    TIMEIT(0, do_options(argc, argv, &options, &user, &queue, &host, &jobName, &cpuFactor, &format, &projectName, &fieldName), "do_options");
 
     if ((format == LONG_FORMAT || format == UF_FORMAT) && (options & PEND_JOB))
         options |= HOST_NAME;
@@ -232,6 +235,9 @@ main (int argc, char **argv)
                     displayLong(job, NULL, cpuFactor);
             }
         }
+        else if (format == O_FORMAT) {
+            displayO(job, jInfoH, options, format, fieldName);
+        }
         else
             displayJobs(job, jInfoH, options, format);
 
@@ -278,7 +284,7 @@ main (int argc, char **argv)
 
 static void
 do_options (int argc, char **argv, int *options, char **user, char **queue,
-            char **host, char **jobName, float *cpuFactor, int *format, char **projectName)
+            char **host, char **jobName, float *cpuFactor, int *format, char **projectName, char **fieldName)
 {
     extern char *optarg;
     int cc, Nflag = 0;
@@ -288,19 +294,20 @@ do_options (int argc, char **argv, int *options, char **user, char **queue,
     *options = 0;
     *user = NULL;
     *queue = NULL;
+    *fieldName = NULL;
     *host  = NULL;
     *jobName = NULL;
     *format = 0;
 
-    while ((cc = getopt(argc, argv, "VladpsrwWgRAhJ:q:u:m:N:P:SU:")) != EOF) {
+    while ((cc = getopt(argc, argv, "VladpsrwWgRAhJ:q:u:m:N:P:SU:o:")) != EOF) {
         switch (cc) {
             case 'w':
-                if (*format == LONG_FORMAT || *format == UF_FORMAT )
+                if (*format == LONG_FORMAT || *format == UF_FORMAT || *format == O_FORMAT )
                     usage(argv[0]);
                 *format = WIDE_FORMAT;
                 break;
             case 'l':
-                if (*format == WIDE_FORMAT)
+                if (*format == WIDE_FORMAT || *format == O_FORMAT)
                     usage(argv[0]);
 
                 if (*format != UF_FORMAT)
@@ -363,11 +370,20 @@ do_options (int argc, char **argv, int *options, char **user, char **queue,
                 fputs(_LS_VERSION_, stderr);
                 exit(0);
             case 'U':
+                if (*format == O_FORMAT)
+                    usage(argv[0]);
                 if (strcmp(optarg,"F")==0) {
                     *format = UF_FORMAT;
                     break;
                 }
                 usage(argv[0]);
+            case 'o':
+                if ( (*fieldName) || (*optarg == '\0') ||
+                (*format == LONG_FORMAT) || (*format == WIDE_FORMAT) || (*format == UF_FORMAT) )
+                    usage(argv[0]);
+                *format = O_FORMAT;
+                *fieldName = optarg;
+                break;
             case 'h':
             default:
                 usage(argv[0]);
@@ -705,6 +721,237 @@ cleanup:
 
     return;
 
+}
+
+char *string_upper(char *str) {
+    size_t i;
+    for (i = 0; str[i] != '\0'; i++) {
+        str[i] = toupper((unsigned char)str[i]);
+    }
+    return str;
+}
+
+/*
+ * display jobs with -o option
+ */
+static void
+displayO (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
+             int options, int format, char *fieldName)
+{
+    char *fName = "displayO";
+    struct submit *submitInfo;
+    static char first = TRUE;
+    char *status;
+    char subtime[64], donetime[64];
+    static char  *exechostfmt;
+    static struct loadIndexLog *loadIndex = NULL;
+    char *exec_host = "";
+    char *jobName, *pos;
+    NAMELIST  *hostList = NULL;
+    char tmpBuf[MAXLINELEN];
+    char osUserName[MAXLINELEN];
+
+
+    int                 i = 0;
+
+    static int fIdx = 15;
+    static char *fields[] = {
+            "JOBID", "USER", "STAT", "QUEUE", "FROM_HOST", "EXEC_HOST", "JOB_NAME", "SUBMIT_TIME",
+            "PROJ_NAME", "CPU_USED", "MEM", "SWAP", "PIDS", "START_TIME", "FINISH_TIME"
+    };
+    char *customizedFields[fIdx];
+    char *customizedField;
+    char header[MAXLINELEN];
+    int j = 0;
+    int k = 0;
+    int verifiedField = 0;
+    char *delimiter = "";
+
+
+    customizedField = strtok(fieldName, " ");
+
+    while (customizedField != NULL) {
+        customizedFields[j] = string_upper(customizedField);
+
+        verifiedField = 0;
+        for (k=0; k<fIdx; k++) {
+            if ( strcmp(customizedFields[j], fields[k]) == 0 ) {
+                verifiedField = 1;
+                break;
+            }
+        }
+
+        if (verifiedField == 0) {
+            fprintf(stderr, "Invalid field specs %s\n", customizedField);
+            exit(99);
+        }
+
+        sprintf(tmpBuf, "%s%s", delimiter, customizedFields[j]);
+        strcat(header, tmpBuf);
+        delimiter = " ";
+
+        j++;
+        customizedField = strtok(NULL, " ");
+
+    }
+    strcat(header, "\n");
+
+
+    if (getOSUserName_(job->user, osUserName, MAXLINELEN) != 0) {
+        strncpy(osUserName, job->user, MAXLINELEN);
+        osUserName[MAXLINELEN - 1] = '\0';
+    }
+
+    if (lsbParams[LSB_SHORT_HOSTLIST].paramValue && job->numExHosts > 1
+        && strcmp(lsbParams[LSB_SHORT_HOSTLIST].paramValue, "1") == 0 ) {
+        hostList = lsb_compressStrList(job->exHosts, job->numExHosts);
+        if (!hostList) {
+
+            exit(99);
+        }
+    }
+
+
+    if (loadIndex == NULL)
+        loadIndex = initLoadIndex();
+
+    submitInfo = &job->submit;
+    status = get_status(job);
+
+    strcpy(subtime, _i18n_ctime( ls_catd, CTIME_FORMAT_b_d_H_M, &job->submitTime));
+    if (IS_FINISH (job->status))
+        strcpy(donetime, _i18n_ctime( ls_catd, CTIME_FORMAT_b_d_H_M, &(job->endTime)));
+    else
+        strcpy(donetime, "      ");
+
+    if (IS_PEND(job->status))
+        exec_host = "";
+    else if ( job->numExHosts == 0)
+        exec_host = "   -   ";
+    else
+    {
+
+        if (lsbParams[LSB_SHORT_HOSTLIST].paramValue && job->numExHosts > 1
+            && strcmp(lsbParams[LSB_SHORT_HOSTLIST].paramValue, "1") == 0 ) {
+            sprintf(tmpBuf, "%d*%s", hostList->counter[0], hostList->names[0]);
+            exec_host = tmpBuf;
+        }
+        else
+            exec_host = job->exHosts[0];
+    }
+
+    if (first) {
+        first = FALSE;
+        printf((_i18n_msg_get(ls_catd,NL_SETN,1461, header))); /* catgets  1461  */
+    }
+
+    jobName = submitInfo->jobName;
+    if (LSB_ARRAY_IDX(job->jobId) && (pos = strchr(jobName, '['))) {
+        *pos = '\0';
+        sprintf(jobName, "%s[%d]", jobName, LSB_ARRAY_IDX(job->jobId));
+    }
+
+    delimiter = "";
+    for( j=0 ; j<fIdx && customizedFields[j] != NULL && strlen(customizedFields[j]) > 0; j++ ){
+        if ( j > 0) {
+            delimiter = " ";
+        }
+
+        if ( strcmp(customizedFields[j], "JOBID") == 0 ) {
+            printf("%s%d", delimiter, LSB_ARRAY_JOBID(job->jobId));
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "USER") == 0 ) {
+            printf("%s%s", delimiter,  osUserName);
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "STAT") == 0 ) {
+            printf("%s%s", delimiter,  status);
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "QUEUE") == 0 ) {
+            printf("%s%s", delimiter,  submitInfo->queue);
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "FROM_HOST") == 0 ) {
+            printf("%s%s", delimiter,  job->fromHost);
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "EXEC_HOST") == 0 ) {
+            printf("%s%s", delimiter,  exec_host);
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "JOB_NAME") == 0 ) {
+            printf("%s%s", delimiter,  jobName);
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "SUBMIT_TIME") == 0 ) {
+            printf("%s%s", delimiter,  subtime);
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "PROJ_NAME") == 0 ) {
+            printf("%s%s", delimiter,  job->submit.projectName);
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "CPU_USED") == 0 ) {
+            float cpuTime=0;
+
+            if (job->cpuTime > 0) {
+                cpuTime = job->cpuTime;
+            }
+            else {
+                cpuTime = job->runRusage.utime + job->runRusage.stime;
+            }
+            printf("%s%s", delimiter,  Timer2String(cpuTime));
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "MEM") == 0 ) {
+            printf("%s%d", delimiter,  ((job->runRusage.mem >0)?job->runRusage.mem :0));
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "SWAP") == 0 ) {
+            printf("%s%d", delimiter,  ((job->runRusage.swap>0)?job->runRusage.swap:0));
+            continue;
+        }
+
+        if ( strcmp(customizedFields[j], "PIDS") == 0 ) {
+            if (job->runRusage.npids) {
+                printf("%s", delimiter);
+                for (i = 0; i < job->runRusage.npids; i++) {
+                    if (i == 0) {
+                        printf("%d",job->runRusage.pidInfo[i].pid);
+                    } else {
+                        printf(",%d",job->runRusage.pidInfo[i].pid);
+                    }
+                }
+            } else {
+                printf("%s-", delimiter);
+            }
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "START_TIME") == 0 ) {
+            if (job->startTime == 0)
+                printf("%s-", delimiter);
+            else
+                printf("%s%s", delimiter,Time2String(job->startTime));
+            continue;
+        }
+        if ( strcmp(customizedFields[j], "FINISH_TIME") == 0 ) {
+            if (job->endTime == 0) {
+                printf("%s-", delimiter);
+            } else {
+                printf("%s%s", delimiter, Time2String(job->endTime));
+            }
+            continue;
+        }
+
+        fprintf(stderr, "Invalid field specs %s\n", customizedFields[j]);
+        exit(99);
+
+    }
+    printf("\n");
+
+    return;
 }
 
 static int
