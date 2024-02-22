@@ -149,7 +149,7 @@ bsub_LDADD += -lnsl
 endif
 
 bjobs_SOURCES = bjobs.c cmd.prt.c cmd.err.c cmd.job.c \
-	cmd.jobid.c cmd.misc.c cmd.h
+	cmd.jobid.c cmd.misc.c cmd.h cJSON.c cJSON.h
 bjobs_LDADD =  \
 	../lib/liblsbatch.a \
 	../../lsf/lib/liblsf.a \
