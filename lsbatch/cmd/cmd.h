@@ -115,7 +115,7 @@ extern int supportJobNamePattern(char *);
 
 
 extern int  repeatedName(char *, char **, int);
-extern void jobInfoErr (LS_LONG_INT, char *, char *, char *, char *, int);
+extern char *jobInfoErr (LS_LONG_INT, char *, char *, char *, char *, int);
 extern int printThresholds (float *, float *, int *, int *, int, struct lsInfo *);
 extern void prtResourceLimit (int *, char *, float, int *);
 extern int  getNames (int, char **, int, char ***, int *, char *);

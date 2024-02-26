@@ -56,6 +56,12 @@ int uflag = FALSE;
 int Wflag = FALSE;
 int jsonflag = FALSE;
 
+char *fields[] = {
+        "JOBID", "USER", "STAT", "QUEUE", "FROM_HOST", "EXEC_HOST", "JOB_NAME", "SUBMIT_TIME",
+        "PROJ_NAME", "CPU_USED", "MEM", "SWAP", "PIDS", "START_TIME", "FINISH_TIME"
+};
+#define FIELD_INDEX          15
+
 static int isLSFAdmin(void);
 static char *Timer2String(float timer);
 static char *Time2String(int timer);
@@ -119,6 +125,7 @@ main (int argc, char **argv)
     cJSON *bjobsJson = NULL;
     cJSON *jobJsonArray = NULL;
     cJSON *jobJsonItem = NULL;
+    char *jobInfoErrMsg = NULL;
 
     rc = _i18n_init ( I18N_CAT_MIN );
 
@@ -134,6 +141,10 @@ main (int argc, char **argv)
         bjobsJson = cJSON_CreateObject();
         jobJsonArray = cJSON_CreateArray();
         cJSON_AddStringToObject(bjobsJson, "COMMAND", "bjobs");
+
+    }
+
+    if (format == O_FORMAT) {
 
     }
 
@@ -180,8 +191,20 @@ main (int argc, char **argv)
     if (jInfoH == NULL) {
 
         if (numJids >= 1) {
-            for (i = 0; i < numJids; i++)
-                jobInfoErr (usrJids[i], jobName, user, queue, host, options);
+            for (i = 0; i < numJids; i++) {
+                jobInfoErrMsg = jobInfoErr (usrJids[i], jobName, user, queue, host, options);
+
+                if (jobInfoErrMsg != NULL) {
+                    if (jsonflag == FALSE) {
+                        fprintf (stderr, "%s\n", jobInfoErrMsg);
+                    } else {
+                        jobJsonItem = cJSON_CreateObject();
+                        cJSON_AddNumberToObject(jobJsonItem, "JOBID", usrJids[i]);
+                        cJSON_AddStringToObject(jobJsonItem, "ERROR", jobInfoErrMsg);
+                        cJSON_AddItemToArray(jobJsonArray, jobJsonItem);
+                    }
+                }
+            }
         } else {
             /* openlava. bjobs without a parameter returns an error
              * if there are no jobs in the system, it does not allow
@@ -190,20 +213,28 @@ main (int argc, char **argv)
              * error but with a different numerical value. We hope
              * to minimize problems with backward compatibility.
              */
-            jobInfoErr(LSB_ARRAY_JOBID(jobId),
+            jobInfoErrMsg = jobInfoErr(LSB_ARRAY_JOBID(jobId),
                        jobName,
                        user,
                        queue,
                        host,
                        options);
-            exit(-2);
+            if (jobInfoErrMsg != NULL) {
+                if (jsonflag == FALSE) {
+                    fprintf(stderr, "%s\n", jobInfoErrMsg);
+                    exit(-2);
+                }
+            }
         }
 
-        exit(-1);
+        if (jsonflag == FALSE) {
+            exit(-1);
+        }
     }
+
     options &= ~NO_PEND_REASONS;
     jobDisplayed = 0;
-    for (i = 0; i < jInfoH->numJobs; i++) {
+    for (i = 0; jInfoH != NULL && i < jInfoH->numJobs; i++) {
 
         TIMEIT(0, (job = lsb_readjobinfo(NULL)), "lsb_readjobinfo");
         if (job == NULL) {
@@ -226,7 +257,19 @@ main (int argc, char **argv)
                     lsfUserName) == NULL) && (strcmp(lsfUserName,job->user) != 0)) {
             if (numJids > 0) {
                 lsberrno = LSBE_NO_JOB;
-                jobInfoErr (LSB_ARRAY_JOBID(job->jobId), jobName, user, queue, host, options);
+
+                jobInfoErrMsg = jobInfoErr (LSB_ARRAY_JOBID(job->jobId), jobName, user, queue, host, options);
+
+                if (jobInfoErrMsg != NULL) {
+                    if (jsonflag == FALSE) {
+                        fprintf (stderr, "%s\n", jobInfoErrMsg);
+                    } else {
+                        jobJsonItem = cJSON_CreateObject();
+                        cJSON_AddNumberToObject(jobJsonItem, "JOBID", LSB_ARRAY_JOBID(job->jobId));
+                        cJSON_AddStringToObject(jobJsonItem, "ERROR", jobInfoErrMsg);
+                        cJSON_AddItemToArray(jobJsonArray, jobJsonItem);
+                    }
+                }
             }
             continue;
         }
@@ -250,6 +293,7 @@ main (int argc, char **argv)
             }
         }
         else if (format == O_FORMAT) {
+
             if (jsonflag) {
                 jobJsonItem = displayJson(job, jInfoH, options, format, fieldName);
                 cJSON_AddItemToArray(jobJsonArray, jobJsonItem);
@@ -276,10 +320,21 @@ main (int argc, char **argv)
         for (i = 0; i < numJids; i++) {
             if (numJobs[i] <= 0) {
                 errCount = TRUE;
-                jobInfoErr(usrJids[i], jobName, realUser, queue, host, options);
+
+                jobInfoErrMsg = jobInfoErr(usrJids[i], jobName, realUser, queue, host, options);
+                if (jobInfoErrMsg != NULL) {
+                    if (jsonflag == FALSE) {
+                        fprintf (stderr, "%s\n", jobInfoErrMsg);
+                    } else {
+                        jobJsonItem = cJSON_CreateObject();
+                        cJSON_AddNumberToObject(jobJsonItem, "JOBID", usrJids[i]);
+                        cJSON_AddStringToObject(jobJsonItem, "ERROR", jobInfoErrMsg);
+                        cJSON_AddItemToArray(jobJsonArray, jobJsonItem);
+                    }
+                }
             }
         }
-        if (errCount == TRUE)
+        if (errCount == TRUE && jsonflag == FALSE)
             exit(-1);
     } else {
 
@@ -295,7 +350,7 @@ main (int argc, char **argv)
 
 
     if (jsonflag) {
-        cJSON_AddNumberToObject(bjobsJson, "JOBS", jInfoH->numJobs);
+        cJSON_AddNumberToObject(bjobsJson, "JOBS", cJSON_GetArraySize(jobJsonArray));
         cJSON_AddItemToObject(bjobsJson, "RECORDS", jobJsonArray);
 
         char *bjobsJsonString = NULL;
@@ -797,15 +852,9 @@ displayO (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
     char tmpBuf[MAXLINELEN];
     char osUserName[MAXLINELEN];
 
-
     int                 i = 0;
 
-    static int fIdx = 15;
-    static char *fields[] = {
-            "JOBID", "USER", "STAT", "QUEUE", "FROM_HOST", "EXEC_HOST", "JOB_NAME", "SUBMIT_TIME",
-            "PROJ_NAME", "CPU_USED", "MEM", "SWAP", "PIDS", "START_TIME", "FINISH_TIME"
-    };
-    char *customizedFields[fIdx];
+    char *customizedFields[FIELD_INDEX];
     char *customizedField;
     char header[MAXLINELEN];
     int j = 0;
@@ -813,14 +862,14 @@ displayO (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
     int verifiedField = 0;
     char *delimiter = "";
 
-
+    // TODO take field split out as a separate function
     customizedField = strtok(fieldName, " ");
 
     while (customizedField != NULL) {
         customizedFields[j] = string_upper(customizedField);
 
         verifiedField = 0;
-        for (k=0; k<fIdx; k++) {
+        for (k=0; k<FIELD_INDEX; k++) {
             if ( strcmp(customizedFields[j], fields[k]) == 0 ) {
                 verifiedField = 1;
                 break;
@@ -828,7 +877,8 @@ displayO (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
         }
 
         if (verifiedField == 0) {
-            fprintf(stderr, "Invalid field specs %s\n", customizedField);
+//            fprintf(stderr, "Invalid field specs %s\n", customizedField);
+            fprintf(stderr, "<%s> in the format string is not a valid field name.\n", customizedField);
             exit(99);
         }
 
@@ -871,7 +921,7 @@ displayO (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
         strcpy(donetime, "      ");
 
     if (IS_PEND(job->status))
-        exec_host = "";
+        exec_host = "-";
     else if ( job->numExHosts == 0)
         exec_host = "   -   ";
     else
@@ -898,7 +948,7 @@ displayO (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
     }
 
     delimiter = "";
-    for( j=0 ; j<fIdx && customizedFields[j] != NULL && strlen(customizedFields[j]) > 0; j++ ){
+    for( j=0 ; j<FIELD_INDEX && customizedFields[j] != NULL && strlen(customizedFields[j]) > 0; j++ ){
         if ( j > 0) {
             delimiter = " ";
         }
@@ -990,10 +1040,6 @@ displayO (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
             }
             continue;
         }
-
-        fprintf(stderr, "Invalid field specs %s\n", customizedFields[j]);
-        exit(99);
-
     }
     printf("\n");
 
@@ -1023,12 +1069,7 @@ cJSON
 
     int                 i = 0;
 
-    static int fIdx = 15;
-    static char *fields[] = {
-            "JOBID", "USER", "STAT", "QUEUE", "FROM_HOST", "EXEC_HOST", "JOB_NAME", "SUBMIT_TIME",
-            "PROJ_NAME", "CPU_USED", "MEM", "SWAP", "PIDS", "START_TIME", "FINISH_TIME"
-    };
-    char *customizedFields[fIdx];
+    char *customizedFields[FIELD_INDEX];
     char *customizedField;
     char *customizedFieldUpper;
     int j = 0;
@@ -1039,6 +1080,7 @@ cJSON
 
     cJSON *jobItem = cJSON_CreateObject();
 
+    // TODO take field split out as a separate function
     customizedField = strtok(fieldName, " ");
 
     while (customizedField != NULL) {
@@ -1059,7 +1101,7 @@ cJSON
         customizedFields[j] = customizedFieldUpper;
 
         verifiedField = 0;
-        for (k=0; k<fIdx; k++) {
+        for (k=0; k<FIELD_INDEX; k++) {
             if ( strcmp(customizedFields[j], fields[k]) == 0 ) {
                 verifiedField = 1;
                 break;
@@ -1067,7 +1109,8 @@ cJSON
         }
 
         if (verifiedField == 0) {
-            fprintf(stderr, "Invalid field specs %s\n", customizedField);
+//            fprintf(stderr, "Invalid field specs %s\n", customizedField);
+            fprintf(stderr, "<%s> in the format string is not a valid field name.\n", customizedField);
             exit(99);
         }
 
@@ -1126,7 +1169,7 @@ cJSON
         sprintf(jobName, "%s[%d]", jobName, LSB_ARRAY_IDX(job->jobId));
     }
 
-    for( j=0 ; j<fIdx && customizedFields[j] != NULL && strlen(customizedFields[j]) > 0; j++ ){
+    for( j=0 ; j<FIELD_INDEX && customizedFields[j] != NULL && strlen(customizedFields[j]) > 0; j++ ){
 
         if ( strcmp(customizedFields[j], "JOBID") == 0 ) {
             cJSON_AddNumberToObject(jobItem, "JOBID", LSB_ARRAY_JOBID(job->jobId));
@@ -1232,10 +1275,6 @@ cJSON
             }
             continue;
         }
-
-        fprintf(stderr, "Invalid field specs %s\n", customizedFields[j]);
-        exit(99);
-
     }
 
     return jobItem;

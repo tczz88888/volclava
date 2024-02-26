@@ -70,6 +70,7 @@ main (int argc, char **argv, char **environ)
     char   fflag = FALSE;
     int    cc;
     int    rc;
+    char *jobInfoErrMsg = NULL;
 
     rc = _i18n_init ( I18N_CAT_MIN );
 
@@ -131,11 +132,17 @@ main (int argc, char **argv, char **environ)
            user = ALL_USERS;
            if (lsb_openjobinfo (jobId, jobName, user, queue, host, options) < 0
                || (jInfo = lsb_readjobinfo (NULL)) == NULL) {
-               jobInfoErr (jobId, jobName, NULL, queue, host, options);
+               jobInfoErrMsg = jobInfoErr (jobId, jobName, NULL, queue, host, options);
+               if (jobInfoErrMsg != NULL) {
+                   fprintf(stderr, "%s\n", jobInfoErrMsg);
+               }
                exit(-1);
            }
         } else {
-           jobInfoErr (jobId, jobName, NULL, queue, host, options);
+            jobInfoErrMsg = jobInfoErr (jobId, jobName, NULL, queue, host, options);
+            if (jobInfoErrMsg != NULL) {
+                fprintf(stderr, "%s\n", jobInfoErrMsg);
+            }
            exit(-1);
         }
     }

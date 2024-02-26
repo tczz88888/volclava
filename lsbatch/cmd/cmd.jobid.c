@@ -38,6 +38,7 @@ getJobIds (int argc, char **argv, char *jobName, char *user, char *queue,
     int numJobIds = 0;
     int options = LAST_JOB;
     struct jobInfoHead *jobInfoHead;
+    char *jobInfoErrMsg = NULL;
 
     if (extOption) {
         options = extOption;
@@ -75,8 +76,11 @@ getJobIds (int argc, char **argv, char *jobName, char *user, char *queue,
     TIMEIT(0, (jobInfoHead = lsb_openjobinfo_a ((LS_LONG_INT)0, jobName, user, queue,
                                         host, options)), "lsb_openjobinfo");
     if (jobInfoHead == NULL) {
-	jobInfoErr (0, jobName, user, queue, host, options);
-	exit(-1);
+        jobInfoErrMsg = jobInfoErr (0, jobName, user, queue, host, options);
+        if (jobInfoErrMsg != NULL) {
+            fprintf(stderr, "%s\n", jobInfoErrMsg);
+        }
+        exit(-1);
     }
 
     TIMEIT(0, lsb_closejobinfo(), "lsb_closejobinfo");

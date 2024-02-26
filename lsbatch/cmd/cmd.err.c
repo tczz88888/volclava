@@ -27,8 +27,8 @@
 
 
 
-void 
-jobInfoErr (LS_LONG_INT jobId, char *jobName, char *user, char *queue, 
+char
+*jobInfoErr (LS_LONG_INT jobId, char *jobName, char *user, char *queue,
             char *host, int options)
 {
     char errMsg[MAXLINELEN/2];
@@ -36,15 +36,18 @@ jobInfoErr (LS_LONG_INT jobId, char *jobName, char *user, char *queue,
 
     if (user && lsberrno == LSBE_BAD_USER) {
 	lsb_perror(user);
-        return;
+//        return NULL;
+        exit(-1);
     }
     if (queue && lsberrno == LSBE_BAD_QUEUE) {
 	lsb_perror(queue);
-        return;
+//        return NULL;
+        exit(-1);
     }
     if (host && lsberrno == LSBE_BAD_HOST) {
 	lsb_perror(host);
-        return;
+//        return NULL;
+        exit(-1);
     }
 
     if (lsberrno == LSBE_NO_JOB) {
@@ -111,12 +114,12 @@ jobInfoErr (LS_LONG_INT jobId, char *jobName, char *user, char *queue,
             sprintf(errMsg, (_i18n_msg_get(ls_catd,NL_SETN,819, "No running job found%s")), hostOrQueue); /* catgets  819  */
         else
             sprintf(errMsg, (_i18n_msg_get(ls_catd,NL_SETN,820, "No job found"))); /* catgets  820  */
-        fprintf (stderr, "%s\n", errMsg);
-        return;
+//        fprintf (stderr, "%s\n", errMsg);
+        return errMsg;
     }
 
     lsb_perror (NULL);
-    return;
+    return NULL;
 
 } 
 
