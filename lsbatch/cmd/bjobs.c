@@ -125,6 +125,7 @@ main (int argc, char **argv)
     cJSON *bjobsJson = NULL;
     cJSON *jobJsonArray = NULL;
     cJSON *jobJsonItem = NULL;
+    char jobidStr[MAXLINELEN];
     char *jobInfoErrMsg = NULL;
 
     rc = _i18n_init ( I18N_CAT_MIN );
@@ -199,7 +200,8 @@ main (int argc, char **argv)
                         fprintf (stderr, "%s\n", jobInfoErrMsg);
                     } else {
                         jobJsonItem = cJSON_CreateObject();
-                        cJSON_AddNumberToObject(jobJsonItem, "JOBID", usrJids[i]);
+                        sprintf(jobidStr, "%d", LSB_ARRAY_JOBID(usrJids[i]));
+                        cJSON_AddStringToObject(jobJsonItem, "JOBID", jobidStr);
                         cJSON_AddStringToObject(jobJsonItem, "ERROR", jobInfoErrMsg);
                         cJSON_AddItemToArray(jobJsonArray, jobJsonItem);
                     }
@@ -265,7 +267,8 @@ main (int argc, char **argv)
                         fprintf (stderr, "%s\n", jobInfoErrMsg);
                     } else {
                         jobJsonItem = cJSON_CreateObject();
-                        cJSON_AddNumberToObject(jobJsonItem, "JOBID", LSB_ARRAY_JOBID(job->jobId));
+                        sprintf(jobidStr, "%d", LSB_ARRAY_JOBID(job->jobId));
+                        cJSON_AddStringToObject(jobJsonItem, "JOBID", jobidStr);
                         cJSON_AddStringToObject(jobJsonItem, "ERROR", jobInfoErrMsg);
                         cJSON_AddItemToArray(jobJsonArray, jobJsonItem);
                     }
@@ -327,7 +330,8 @@ main (int argc, char **argv)
                         fprintf (stderr, "%s\n", jobInfoErrMsg);
                     } else {
                         jobJsonItem = cJSON_CreateObject();
-                        cJSON_AddNumberToObject(jobJsonItem, "JOBID", usrJids[i]);
+                        sprintf(jobidStr, "%d", LSB_ARRAY_JOBID(usrJids[i]));
+                        cJSON_AddStringToObject(jobJsonItem, "JOBID", jobidStr);
                         cJSON_AddStringToObject(jobJsonItem, "ERROR", jobInfoErrMsg);
                         cJSON_AddItemToArray(jobJsonArray, jobJsonItem);
                     }
@@ -1077,6 +1081,9 @@ cJSON
     int l;
     int verifiedField = 0;
     int duplicatedField = 0;
+    char jobIdStr[MAXLINELEN];
+    char jobMemStr[MAXLINELEN];
+    char jobSwapStr[MAXLINELEN];
 
     cJSON *jobItem = cJSON_CreateObject();
 
@@ -1172,7 +1179,8 @@ cJSON
     for( j=0 ; j<FIELD_INDEX && customizedFields[j] != NULL && strlen(customizedFields[j]) > 0; j++ ){
 
         if ( strcmp(customizedFields[j], "JOBID") == 0 ) {
-            cJSON_AddNumberToObject(jobItem, "JOBID", LSB_ARRAY_JOBID(job->jobId));
+            sprintf(jobIdStr, "%d", LSB_ARRAY_JOBID(job->jobId));
+            cJSON_AddStringToObject(jobItem, "JOBID", jobIdStr);
             continue;
         }
 
@@ -1230,12 +1238,14 @@ cJSON
         }
 
         if ( strcmp(customizedFields[j], "MEM") == 0 ) {
-            cJSON_AddNumberToObject(jobItem, "MEM", ((job->runRusage.mem >0)?job->runRusage.mem :0));
+            sprintf(jobMemStr, "%d", ((job->runRusage.mem >0)?job->runRusage.mem :0));
+            cJSON_AddStringToObject(jobItem, "MEM", jobMemStr);
             continue;
         }
 
         if ( strcmp(customizedFields[j], "SWAP") == 0 ) {
-            cJSON_AddNumberToObject(jobItem, "SWAP", ((job->runRusage.swap>0)?job->runRusage.swap:0));
+            sprintf(jobSwapStr, "%d", ((job->runRusage.swap>0)?job->runRusage.swap:0));
+            cJSON_AddStringToObject(jobItem, "SWAP", jobSwapStr);
             continue;
         }
 
