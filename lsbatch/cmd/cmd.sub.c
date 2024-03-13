@@ -21,6 +21,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <ctype.h>
+#include <wordexp.h>
 
 #define NL_SETN 8
 
@@ -47,6 +48,8 @@ static int
 addLabel2RsrcReq(struct submit *subreq);
 
 void sub_perror (char *);
+void do_pack_sub (int option, char **argv, struct submit *req);
+char **split_commandline(const char *cmdline, int *argc);
 
 static char *commandline;
 
@@ -59,6 +62,12 @@ static char *commandline;
 #define EMBED_BSUB         0x04
 #define EMBED_RESTART      0x10
 #define EMBED_QSUB         0x20
+
+#define DEFAULT_LSB_PACK_SKIP_ERROR    "N"
+#define DEFAULT_LSB_MAX_PACK_JOBS      (0)
+
+static int packSkipErrFlag = FALSE;
+static int lsbMaxPackJobs = DEFAULT_LSB_MAX_PACK_JOBS;
 
 
 int
@@ -79,7 +88,7 @@ do_sub (int argc, char **argv, int option)
     if (logclass & (LC_TRACE | LC_SCHED | LC_EXEC))
         ls_syslog(LOG_DEBUG, "%s: Entering this routine...", fname);
 
-    if (fillReq (argc, argv, option, &req) < 0){
+    if (fillReq (argc, argv, option, &req, FALSE) < 0){
 	fprintf(stderr,  ". %s.\n",
 	    (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
         return (-1);
@@ -88,12 +97,17 @@ do_sub (int argc, char **argv, int option)
 
     memset(&reply, 0, sizeof(struct submitReply));
 
-    TIMEIT(0, (jobId = lsb_submit(&req, &reply)), "lsb_submit");
-    if (jobId < 0) {
-        prtErrMsg (&req, &reply);
-        fprintf(stderr,  ". %s.\n",
-           (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
-        return(-1);
+    if (req.options & SUB_PACK) {
+        do_pack_sub(option, argv, &req);
+    } else {
+        TIMEIT(0, (jobId = lsb_submit(&req, &reply)), "lsb_submit");
+        if (jobId < 0) {
+            prtErrMsg (&req, &reply);
+            fprintf(stderr,  ". %s.\n",
+                    (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
+            return(-1);
+        }
+
     }
 
     if (req.nxf)
@@ -101,6 +115,192 @@ do_sub (int argc, char **argv, int option)
 
     return(0);
 
+}
+
+void
+do_pack_sub (int option, char **argv, struct submit *req)
+{
+    static char fname[] = "do_pack_sub";
+
+    FILE *fp;
+    int lineNum;
+    int packParsed;
+    int packSubmit;
+    int packError;
+    int parseError = FALSE;
+    char *line;
+//    char *packFile = "";
+
+    int size = 10*PATH_MAX;
+
+    char **packedArgv;
+    int  packedArgc = 0;
+    struct submit  packReq;
+    struct submitReply  packReply;
+    LS_LONG_INT jobId = -1;
+    char tmpBuf[MAXLINELEN];
+
+    if (lsbMaxPackJobs == DEFAULT_LSB_MAX_PACK_JOBS) {
+        fprintf(stderr,  "Pack submission disabled by LSB_MAX_PACK_JOBS in lsf.conf. Job not submitted.\n");
+        return(-1);
+    }
+
+//    if ((packFile = (char *) malloc(size)) == NULL) {
+//        fprintf(stderr, I18N_FUNC_FAIL,fname,"malloc" );
+//        return (FALSE);
+//    }
+
+//    strcpy(packFile, commandline);
+
+    // parse pack file
+    fp = fopen(req->packFile, "r");
+    if (!fp) {
+        lserrno = LSE_NO_FILE;
+        fprintf(stderr,  "Cannot read file <%s>. Job not submitted.\n", req->packFile);
+        return(-1);
+    }
+
+    lineNum = 0;
+    packParsed = 0;
+    packSubmit = 0;
+    packError = 0;
+    while ((line = getNextLineC_(fp, &lineNum, TRUE)) != NULL) {
+        parseError = FALSE;
+        packParsed ++;
+        fprintf(stderr, "Line#%d ", lineNum);
+
+        sprintf(tmpBuf, "%s %s", argv[0], line);
+        packedArgv = split_commandline(tmpBuf, &packedArgc);
+        if (packedArgv == NULL) {
+            fprintf(stderr,  "failed to parsed line %d. %s. %s\n", lineNum, tmpBuf, req->packFile);
+
+            packError ++;
+            if (packSkipErrFlag) {
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        optind = 1;
+
+        if (fillReq (packedArgc, packedArgv, CMD_BSUB, &packReq, TRUE) < 0){
+            fprintf(stderr,  ". %s.\n",
+                    (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
+
+            packError ++;
+            if (packSkipErrFlag) {
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        if (packReq.options2 & SUB2_BSUB_BLOCK) {
+            fprintf(stderr,  "Option -K is not supported in -pack job submission file."
+                             " Job not submitted.\n");
+            parseError = TRUE;
+        } else if (packReq.options & SUB_INTERACTIVE){
+            fprintf(stderr,  "Option -I is not supported in -pack job submission file."
+                             " Job not submitted.\n");
+            parseError = TRUE;
+        } else if (packReq.options & SUB_PACK){
+            fprintf(stderr,  "Option -pack is not supported in -pack job submission file."
+                             " Job not submitted.\n");
+            parseError = TRUE;
+        }
+        if (parseError) {
+            packError ++;
+            if (packSkipErrFlag) {
+                continue;
+            } else {
+                break;
+            }
+        }
+
+
+        memset(&packReply, 0, sizeof(struct submitReply));
+
+        TIMEIT(0, (jobId = lsb_submit(&packReq, &packReply)), "lsb_submit");
+        if (jobId < 0) {
+            prtErrMsg (&packReq, &packReply);
+            fprintf(stderr,  ". %s.\n",
+                    (_i18n_msg_get(ls_catd,NL_SETN,1551, "Job not submitted")));
+            packError ++;
+            if (packSkipErrFlag) {
+                continue;
+            } else {
+                break;
+            }
+        } else {
+            packSubmit ++;
+        }
+    }
+
+    fprintf(stderr,  "%d lines parsed, %d jobs submitted, %d errors found.\n",
+            packParsed, packSubmit, packError);
+
+    fclose(fp);
+//    free(packFile);
+
+    return;
+}
+
+char **split_commandline(const char *cmdline, int *argc)
+{
+    int i;
+    char **argv = NULL;
+    assert(argc);
+
+    if (!cmdline)
+    {
+        return NULL;
+    }
+
+    wordexp_t p;
+
+    // Note! This expands shell variables.
+    if (wordexp(cmdline, &p, 0))
+    {
+        return NULL;
+    }
+
+    *argc = p.we_wordc;
+
+    if (!(argv = calloc((*argc) + 1, sizeof(char *))))
+    {
+        goto fail;
+    }
+
+    for (i = 0; i < p.we_wordc; i++)
+    {
+        if (!(argv[i] = strdup(p.we_wordv[i])))
+        {
+            goto fail;
+        }
+    }
+    argv[i]=NULL;
+
+    wordfree(&p);
+
+    return argv;
+fail:
+    wordfree(&p);
+
+    if (argv)
+    {
+        for (i = 0; i < *argc; i++)
+        {
+            if (argv[i])
+            {
+                free(argv[i]);
+            }
+        }
+
+        free(argv);
+    }
+
+    return NULL;
 }
 
 void
@@ -126,7 +326,7 @@ prtBETime (struct submit req)
 }
 
 int
-fillReq (int argc, char **argv, int operate, struct submit *req)
+fillReq (int argc, char **argv, int operate, struct submit *req, int isInPackFile)
 {
     static char fname[] = "fillReq";
     struct stat statBuf;
@@ -164,6 +364,7 @@ fillReq (int argc, char **argv, int operate, struct submit *req)
 
     req->options2 = 0;
     commandline = "";
+    emptyCmd = TRUE;
 
     myArgc = 0;
     myArgv0 = (char *) NULL;
@@ -226,6 +427,10 @@ fillReq (int argc, char **argv, int operate, struct submit *req)
             {"LSB_ECHKPNT_METHOD_DIR",NULL},
         #define LSB_ECHKPNT_KEEP_OUTPUT    2
             {"LSB_ECHKPNT_KEEP_OUTPUT",NULL},
+        #define LSB_MAX_PACK_JOBS    3
+            {"LSB_MAX_PACK_JOBS",NULL},
+        #define LSB_PACK_SKIP_ERROR    4
+            {"LSB_PACK_SKIP_ERROR",NULL},
             {NULL, NULL}
         };
 
@@ -269,6 +474,26 @@ fillReq (int argc, char **argv, int operate, struct submit *req)
 	    FREEUP(aParamList[LSB_ECHKPNT_KEEP_OUTPUT].paramValue);
         }
 
+
+        if ( aParamList[LSB_MAX_PACK_JOBS].paramValue != NULL){
+            if (!isint_(aParamList[LSB_MAX_PACK_JOBS].paramValue)
+                || (atoi(aParamList[LSB_MAX_PACK_JOBS].paramValue)) < 0) {
+                lsbMaxPackJobs = DEFAULT_LSB_MAX_PACK_JOBS;
+            } else {
+                lsbMaxPackJobs = atoi(aParamList[LSB_MAX_PACK_JOBS].paramValue);
+            }
+        }
+        FREEUP(aParamList[LSB_MAX_PACK_JOBS].paramValue);
+
+
+        if ( aParamList[LSB_PACK_SKIP_ERROR].paramValue != NULL){
+            if (strcmp(aParamList[LSB_PACK_SKIP_ERROR].paramValue,"Y")==0 ||
+                strcmp(aParamList[LSB_PACK_SKIP_ERROR].paramValue,"y")==0 ) {
+                packSkipErrFlag = TRUE;
+            }
+        }
+        FREEUP(aParamList[LSB_PACK_SKIP_ERROR].paramValue);
+
     }
 
     if (setOption_ (argc, argv, template, req, ~0, ~0, NULL) == -1)
@@ -306,25 +531,32 @@ fillReq (int argc, char **argv, int operate, struct submit *req)
 	        subUsage_(req->options, NULL);
 
     } else {
-	if (myArgc > 0 && myArgv0 != NULL) {
+        if (myArgc > 0 && myArgv0 != NULL) {
             emptyCmd = FALSE;
-	    argv[argc] = myArgv0;
-	    if (!CopyCommand(&argv[argc], myArgc))
-		return (-1);
-	}
-	else if (argc >= optind + 1) {
-
-            emptyCmd = FALSE;
-	    if (!CopyCommand(argv+optind, argc-optind-1))
-		return (-1);
-	} else
-            if (parseScript(stdin, &embedArgc, &embedArgv,
-                            EMBED_INTERACT|EMBED_BSUB) == -1)
+            argv[argc] = myArgv0;
+            if (!CopyCommand(&argv[argc], myArgc))
                 return (-1);
-
-	req->command = commandline;
+        }
+        else if (argc >= optind + 1) {
+            emptyCmd = FALSE;
+            if (!CopyCommand(argv+optind, argc-optind-1))
+                return (-1);
+        } else {
+            if (!(req->options & SUB_PACK) && isInPackFile == FALSE) {
+                if (parseScript(stdin, &embedArgc, &embedArgv,
+                                EMBED_INTERACT | EMBED_BSUB) == -1)
+                    return (-1);
+            }
+        }
+        req->command = commandline;
         SKIPSPACE(req->command);
-        if (emptyCmd) {
+
+        if ((req->options & SUB_PACK) && emptyCmd==FALSE){
+            subUsage_(req->options, NULL);
+            return (-1);
+        }
+
+        if (emptyCmd && !(req->options & SUB_PACK)) {
             if (redirect)
                 fprintf(stderr, (_i18n_msg_get(ls_catd,NL_SETN,1559, "No command is specified in the script file"))); /* catgets  1559  */
             else

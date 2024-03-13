@@ -47,7 +47,7 @@ main (int argc, char **argv)
         exit (-1);
     }
 
-    if (fillReq (argc, argv, CMD_BMODIFY, &req) < 0) {
+    if (fillReq (argc, argv, CMD_BMODIFY, &req, FALSE) < 0) {
 	fprintf(stderr, ". %s.\n",
 		(_i18n_msg_get(ls_catd,NL_SETN,351, "Job not modified")));
         exit (-1);

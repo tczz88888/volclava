@@ -486,6 +486,7 @@
 #define  SUB_INTERACTIVE    0x4000000
 #define  SUB_PTY            0x8000000
 #define  SUB_PTY_SHELL      0x10000000
+#define  SUB_PACK           0x20000000
 
 #define  SUB2_HOLD          0x01
 #define  SUB2_MODIFY_CMD    0x02
@@ -522,6 +523,7 @@ struct submit {
     int     options;
     int     options2;
     char    *jobName;
+    char    *packFile;
     char    *queue;
     int     numAskedHosts;
     char    **askedHosts;

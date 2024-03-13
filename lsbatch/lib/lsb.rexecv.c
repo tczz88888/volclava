@@ -427,7 +427,7 @@ parseScript2(FILE *from, int *embedArgc, char ***embedArgv, int option)
 int
 fillReq2(int argc, char **argv, int operate, struct submit *req)
 {
-    static char fname[] = "fillReq";
+    static char fname[] = "fillReq2";
     struct stat statBuf;
     char *template, **embedArgv;
     int  i, embedArgc = 0, redirect = 0;

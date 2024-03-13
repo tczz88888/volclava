@@ -3296,4 +3296,80 @@ follows:
 .RS
 .HP 2
 \(bu On UNIX: $TMPDIR or /tmp
+.SH LSB_MAX_PACK_JOBS
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBLSB_MAX_PACK_JOBS=integer
+.SS Description
+.BR
+.PP
+.PP
+Applies to job packs only. Enables the job packs feature and
+specifies the maximum number of job submission requests in one
+job pack.
+.PP
+If the value is 0, job packs are disabled.
+.PP
+If the value is 1, jobs from the file are submitted individually,
+as if submitted directly using the bsub command.
+.PP
+We recommend 100 as the initial pack size. Tune this parameter
+based on cluster performance. The larger the pack size, the
+faster the job submission rate is for all the job requests the
+job submission file. However, while mbatchd is processing a pack,
+mbatchd is blocked from processing other requests, so increasing
+pack size can affect mbatchd response time for other job submissions.
+.PP
+If you change the configuration of this parameter, you must
+restart mbatchd.
+.PP
+Parameters related to job packs are not supported as environment
+variables.
+.SS Valid Values
+.BR
+.PP
+.PP
+Any positive integer or 0.
+.SS Default
+.BR
+.PP
+.PP
+Set to 300 at time of installation for the configuration template.
+If otherwise undefined, then 0 (disabled).
+.SH LSB_PACK_SKIP_ERROR
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBLSB_PACK_SKIP_ERROR=y\fR|\fBY\fR|\fBn\fR|\fBN
+.SS Description
+.BR
+.PP
+.PP
+Applies to job packs only.
+.PP
+If LSB_PACK_SKIP_ERROR=\fBY\fR, all requests in the job submission file
+are submitted, even if some of the job submissions fail. The job
+submission process always continues to the end of the file.
+.PP
+If LSB_PACK_SKIP_ERROR=\fBN\fR, job submission stops if one job submission
+fails. The remaining requests in the job submission file are
+not submitted.
+.PP
+If you change the configuration of this parameter, you must
+restart mbatchd.
+.PP
+Parameters related to job packs are not supported as environment
+variables.
+.SS Default
+.BR
+.PP
+.PP
+\fBN
 .RE

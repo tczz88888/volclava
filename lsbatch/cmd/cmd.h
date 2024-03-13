@@ -99,7 +99,7 @@ extern void prtJobFinish(struct jobInfoEnt *, struct jobInfoHead *);
 extern void prtJobFinishUF(struct jobInfoEnt *, struct jobInfoHead *);
 extern void prtAcctFinish(struct jobInfoEnt *);
 extern struct loadIndexLog *initLoadIndex(void);
-extern int fillReq (int, char **, int, struct submit *);
+extern int fillReq (int, char **, int, struct submit *, int);
 extern void prtErrMsg (struct submit *, struct submitReply *);
 extern void prtBTTime(struct jobInfoEnt *);
 extern void prtJobReserv(struct jobInfoEnt *);

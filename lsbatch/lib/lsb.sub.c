@@ -2698,6 +2698,10 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
     char *(*getoptfunc)();
     int flagI = 0;
     int flagK = 0;
+
+    int flagPack = 0;
+    int flagPackConflict = 0;
+
     struct args {
         int argc;
         char **argv;
@@ -2738,6 +2742,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	switch (optName[0]) {
 
 	case 'E':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkSubDelOption (SUB_PRE_EXEC, "En");
             if (mask & SUB_PRE_EXEC) {
@@ -2746,7 +2758,15 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
             }
 	    break;
 
-        case 'w':
+    case 'w':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkSubDelOption (SUB_DEPEND_COND, "wn");
             if (mask & SUB_DEPEND_COND) {
@@ -2756,6 +2776,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    break;
 
 	case 'L':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
 	    checkSubDelOption (SUB_LOGIN_SHELL, "Ln");
             if (mask & SUB_LOGIN_SHELL) {
@@ -2765,12 +2793,28 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    break;
 
 	case 'B':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkSubDelOption (SUB_NOTIFY_BEGIN, "Bn");
 	    req->options |= SUB_NOTIFY_BEGIN;
 	    break;
 
 	case 'f':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkSubDelOption (SUB_OTHER_FILES, "fn");
 	    if (req->options & SUB_RESTART) {
@@ -2786,7 +2830,15 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
             }
             break;
 
-        case 'k':
+    case 'k':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkSubDelOption ((SUB_CHKPNT_PERIOD | SUB_CHKPNT_DIR), "kn");
             if (!(mask & SUB_CHKPNT_DIR))
@@ -2885,6 +2937,13 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    break;
 
 	case 'R':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
 
             checkSubDelOption (SUB_RES_REQ, "Rn");
             if (mask & SUB_RES_REQ) {
@@ -2901,13 +2960,21 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    break;
 
 	case 'x':
-	    req->options2 |= SUB2_MODIFY_PEND_JOB;
-            checkSubDelOption (SUB_EXCLUSIVE, "xn");
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
+        req->options2 |= SUB2_MODIFY_PEND_JOB;
+        checkSubDelOption (SUB_EXCLUSIVE, "xn");
 	    req->options |= SUB_EXCLUSIVE;
 	    break;
 
 	case 'I':
-            if (flagI || flagK) {
+            if (flagI || flagK || flagPack) {
 		myArgs.argc = req->options;
 		lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
 
@@ -2931,12 +2998,20 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    }
 	    break;
 
-        case 'H':
-            checkSubDelOption (SUB2_HOLD, "Hn");
-            req->options2 |= SUB2_HOLD;
-            break;
-        case 'K':
-            if (flagI || flagK) {
+    case 'H':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
+        checkSubDelOption (SUB2_HOLD, "Hn");
+        req->options2 |= SUB2_HOLD;
+        break;
+    case 'K':
+            if (flagI || flagK || flagPack) {
 		myArgs.argc = req->options;
 		lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
 
@@ -2946,25 +3021,49 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
             req->options2 |= SUB2_BSUB_BLOCK;
             break;
 	case 'r':
-	    req->options2 |= SUB2_MODIFY_RUN_JOB;
-            checkSubDelOption (SUB_RERUNNABLE, "rn");
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
+        req->options2 |= SUB2_MODIFY_RUN_JOB;
+        checkSubDelOption (SUB_RERUNNABLE, "rn");
 
 	    req->options |= SUB_RERUNNABLE;
 	    break;
 
 	case 'N':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkSubDelOption (SUB_NOTIFY_END, "Nn");
 	    req->options |= SUB_NOTIFY_END;
 	    break;
 
 	case 'h':
-            myArgs.argc = req->options;
-            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+        myArgs.argc = req->options;
+        lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
 
 	    return (-1);
 
 	case 'm':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkSubDelOption (SUB_HOST, "mn");
             if (!(mask & SUB_HOST))
@@ -2986,18 +3085,33 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
             break;
 
 	case 'J':
-	    req->options2 |= SUB2_MODIFY_PEND_JOB;
-            checkSubDelOption (SUB_JOB_NAME, "Jn");
-            if (mask & SUB_JOB_NAME) {
-	        req->jobName = optarg;
-	        req->options |= SUB_JOB_NAME;
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
+        req->options2 |= SUB2_MODIFY_PEND_JOB;
+        checkSubDelOption (SUB_JOB_NAME, "Jn");
+        if (mask & SUB_JOB_NAME) {
+        req->jobName = optarg;
+        req->options |= SUB_JOB_NAME;
 		req->options2 |= SUB2_MODIFY_PEND_JOB;
             }
 	    break;
 
 	case 'i':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
 
-	    pExclStr = "isn|is|in|i";
+            return (-1);
+        }
+        flagPackConflict = 1;
+
+        pExclStr = "isn|is|in|i";
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
 	    if (strncmp (optName, "is", 2) == 0) {
 
@@ -3049,6 +3163,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    }
 	    break;
 	case 'o':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_RUN_JOB;
             checkSubDelOption (SUB_OUT_FILE, "on");
 
@@ -3073,6 +3195,13 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    break;
 
 	case 'u':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
 
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkSubDelOption (SUB_MAIL_USER, "un");
@@ -3091,6 +3220,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    break;
 
 	case 'e':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_RUN_JOB;
             checkSubDelOption (SUB_ERR_FILE, "en");
 
@@ -3115,6 +3252,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    break;
 
 	case 'n':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             if (req->options & SUB_MODIFY && strcmp (optName, "nn") == 0) {
                if (req->numProcessors != 0) {
@@ -3157,6 +3302,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    break;
 
 	case 'q':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkSubDelOption (SUB_QUEUE, "qn");
             if (mask & SUB_QUEUE) {
@@ -3166,6 +3319,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    break;
 
 	case 'b':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             if (req->options & SUB_MODIFY && strcmp (optName, "bn") == 0) {
                 if (req->beginTime != 0 &&
@@ -3193,6 +3354,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    break;
 
 	case 't':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             if (req->options & SUB_MODIFY && strcmp (optName, "tn") == 0) {
                 if (req->termTime != 0 &&
@@ -3221,7 +3390,15 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    break;
 
 	case 's':
-	    req->options2 |= SUB2_MODIFY_PEND_JOB;
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
+        req->options2 |= SUB2_MODIFY_PEND_JOB;
 	    if ( strncmp (optName, "sp", 2) == 0) {
 
 		checkSubDelOption2(SUB2_JOB_PRIORITY, "spn");
@@ -3253,6 +3430,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    break;
 
 	case 'c':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_RUN_JOB;
             checkRLDelOption (LSF_RLIMIT_CPU, "cn");
             if (req->rLimits[LSF_RLIMIT_CPU] != DEFAULT_RLIMIT)
@@ -3317,6 +3502,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
             break;
 
 	case 'P':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkSubDelOption (SUB_PROJECT_NAME, "Pn");
 	    if ((mask & SUB_PROJECT_NAME))
@@ -3335,6 +3528,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 
 
 	case 'W':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_RUN_JOB;
             checkRLDelOption (LSF_RLIMIT_RUN, "Wn");
 
@@ -3396,6 +3597,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
             break;
 
 	case 'F':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkRLDelOption (LSF_RLIMIT_FSIZE, "Fn");
             if (req->rLimits[LSF_RLIMIT_FSIZE] != DEFAULT_RLIMIT)
@@ -3412,6 +3621,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    return(-1);
 
 	case 'D':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkRLDelOption (LSF_RLIMIT_DATA, "Dn");
             if (req->rLimits[LSF_RLIMIT_DATA] != DEFAULT_RLIMIT)
@@ -3428,6 +3645,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    return(-1);
 
 	case 'S':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkRLDelOption (LSF_RLIMIT_STACK, "Sn");
 
@@ -3445,6 +3670,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    return(-1);
 
 	case 'C':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkRLDelOption (LSF_RLIMIT_CORE, "Cn");
             if (req->rLimits[LSF_RLIMIT_CORE] != DEFAULT_RLIMIT)
@@ -3461,6 +3694,14 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    return(-1);
 
 	case 'M':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    req->options2 |= SUB2_MODIFY_RUN_JOB;
             checkRLDelOption (LSF_RLIMIT_RSS, "Mn");
             if (req->rLimits[LSF_RLIMIT_RSS] != DEFAULT_RLIMIT)
@@ -3477,7 +3718,40 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	    return(-1);
 
 
-        case 'p':
+    case 'p':
+
+        if (strcmp(optarg,"ack")==0) {
+
+            if (flagI || flagK || flagPack || flagPackConflict) {
+                myArgs.argc = req->options;
+                lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+                return (-1);
+            }
+
+            flagPack ++;
+            req->options |= SUB_PACK;
+
+            if( (!argv[optind]) || argv[optind] == NULL || (strcmp(argv[optind], "") == 0)) {
+                myArgs.argc = req->options;
+                lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+                return (-1);
+            }
+
+            req->packFile = argv[optind];
+            optind++;
+
+            break;
+        }
+
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
             checkRLDelOption (LSF_RLIMIT_PROCESS, "pn");
             if (req->rLimits[LSF_RLIMIT_PROCESS] != DEFAULT_RLIMIT)
 
@@ -3498,7 +3772,15 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
                 optarg);
             return(-1);
 
-        case 'v':
+    case 'v':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
             checkRLDelOption (LSF_RLIMIT_SWAP, "vn");
             if (req->rLimits[LSF_RLIMIT_SWAP] != DEFAULT_RLIMIT)
 
@@ -3513,7 +3795,15 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
                 optarg);
             return(-1);
 
-        case 'O':
+    case 'O':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    if ( req->options == 0) {
 	        optionFlag = TRUE;
 		strcpy( optionFileName, optarg);
@@ -3522,7 +3812,15 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
                 req->options |= SUB_MODIFY_ONCE;
             break;
 
-        case 'Z':
+    case 'Z':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 	    pExclStr = "Zsn|Zs|Z";
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
 	    if (strncmp (optName, "Zs", 2) == 0) {
@@ -3572,7 +3870,15 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
 	        req->options2 |= SUB2_MODIFY_CMD;
 	    }
 	    break;
-	    case 'a':
+    case 'a':
+        if (flagPack) {
+            myArgs.argc = req->options;
+            lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+
+            return (-1);
+        }
+        flagPackConflict = 1;
+
 		additionEsubInfo=putstr_(optarg);
 		break;
 	case 'V':
@@ -3899,7 +4205,10 @@ subUsage_(int option, char **errMsg)
 	    fprintf(stderr, "\t\t[-E \"pre_exec_command [argument ...]\"] [-Zs]\n");
 	    fprintf(stderr, "\t\t[-sp job_priority]\n");
 	    fprintf(stderr, "\t\t[command [argument ...]]\n");
-	    fprintf(stderr, I18N_ESUB_INFO_USAGE);
+
+        fprintf(stderr, "\t\t-pack job_submission_file\n");
+
+        fprintf(stderr, I18N_ESUB_INFO_USAGE);
 	}
 
         exit (-1);
