@@ -1,0 +1,15 @@
+[Unit]
+Description=Openlava
+After=remote-fs.target network.target nfs.service autofs.service gpfs.service nscd.service
+
+[Service]
+Type=forking
+ExecStart=/etc/init.d/openlava start
+ExecStop=/etc/init.d/openlava stop
+KillMode=none
+LimitMEMLOCK=infinity
+Delegate=yes
+
+[Install]
+WantedBy=multi-user.target
+

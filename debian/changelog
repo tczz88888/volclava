@@ -1,0 +1,5 @@
+openlava (2.0-1.b.20240417) UNRELEASED; urgency=medium
+
+  * support ubuntu/debian with tcl 6.8 and glibc 2.31-0
+
+ -- Mingze Li <limingze.jiayou@bytedance.com>  Wed, 17 Apr 2024 10:57:18 +0800
