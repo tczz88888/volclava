@@ -113,8 +113,9 @@ struct submitReq {
     time_t  submitTime;               
     int     umask;
     char    *cwd;
-    char    *preExecCmd;              
-    char    *mailUser;                
+    char    *preExecCmd;
+    char    *postExecCmd;
+    char    *mailUser;
     char    *projectName;             
     int     niosPort;                 
     int     maxNumProcessors;         

@@ -46,16 +46,17 @@
 #define MASK_INT_JOB_STAT       0x000FFFFF
 #define MASK_STATUS(s) ((s) & MASK_INT_JOB_STAT)
 
-#define JOB_STAT_CHKPNTED_ONCE 	0x10000000
-#define JOB_STAT_RESERVE         0x20000000
-#define JOB_STAT_MIG            0x40000000
-#define JOB_STAT_MODIFY_ONCE    0x01000000
-#define JOB_STAT_ZOMBIE         0x02000000
-#define JOB_STAT_PRE_EXEC       0x04000000
-#define JOB_STAT_SIGNAL         0x08000000
-#define JOB_STAT_KILL           0x00800000
+#define JOB_STAT_CHKPNTED_ONCE     0x10000000
+#define JOB_STAT_RESERVE           0x20000000
+#define JOB_STAT_MIG               0x40000000
+#define JOB_STAT_MODIFY_ONCE       0x01000000
+#define JOB_STAT_ZOMBIE            0x02000000
+#define JOB_STAT_PRE_EXEC          0x04000000
+#define JOB_STAT_POST_EXEC         0x80000000
+#define JOB_STAT_SIGNAL            0x08000000
+#define JOB_STAT_KILL              0x00800000
 #define JOB_STAT_RSRC_PREEMPT_WAIT 0x00400000
-#define JOB_STAT_VOID           0x00100000
+#define JOB_STAT_VOID              0x00100000
 
 #define SET_STATE(s ,n) ((s) = ((s) & ~(MASK_INT_JOB_STAT)) | (n))
 
@@ -254,6 +255,7 @@ struct jobSpecs {
     time_t    migThresh;
     time_t    lastSSuspTime;
     char    preExecCmd[MAXLINELEN];
+    char    postExecCmd[MAXLINELEN];
     float   lastCpuTime;
     char     mailUser[MAXLINELEN];
     char     clusterName[MAX_LSB_NAME_LEN];

@@ -202,6 +202,7 @@ lsb_submit(struct submit  *jobSubReq, struct submitReply *submitRep)
     subNewLine_(jobSubReq->resReq);
     subNewLine_(jobSubReq->dependCond);
     subNewLine_(jobSubReq->preExecCmd);
+    subNewLine_(jobSubReq->postExecCmd);
     subNewLine_(jobSubReq->mailUser);
     subNewLine_(jobSubReq->jobName);
     subNewLine_(jobSubReq->queue);
@@ -325,6 +326,16 @@ getCommonParams (struct submit  *jobSubReq, struct submitReq *submitReq,
             submitReq->preExecCmd = jobSubReq->preExecCmd;
     } else
         submitReq->preExecCmd = "";
+
+    if (jobSubReq->options & SUB_POST_EXEC) {
+        if (!jobSubReq->postExecCmd)
+            return (-1);
+        if (strlen(jobSubReq->postExecCmd) >= MAXLINELEN - 1)
+            return (-1);
+        else
+            submitReq->postExecCmd = jobSubReq->postExecCmd;
+    } else
+        submitReq->postExecCmd = "";
 
     if (jobSubReq->options & SUB_QUEUE) {
         if (!jobSubReq->queue) {
@@ -2448,6 +2459,7 @@ xdrSubReqSize(struct submitReq *req)
 	  ALIGNWORD_(strlen(req->inFileSpool) + 1) + 4 +
 	  ALIGNWORD_(strlen(req->commandSpool) + 1) + 4 +
 	  ALIGNWORD_(strlen(req->preExecCmd) + 1) + 4 +
+	  ALIGNWORD_(strlen(req->postExecCmd) + 1) + 4 +
 	  ALIGNWORD_(strlen(req->hostSpec) + 1) + 4 +
 	  ALIGNWORD_(strlen(req->chkpntDir) + 1) + 4 +
 	  ALIGNWORD_(strlen(req->subHomeDir) + 1) + 4 +
@@ -2749,6 +2761,23 @@ setOption_ (int argc, char **argv, char *template, struct submit *req,
             return (-1);
         }
         flagPackConflict = 1;
+
+        if (strcmp(optarg,"p")==0) {
+            req->options |= SUB_POST_EXEC;
+
+            if( (!argv[optind]) || argv[optind] == NULL || (strcmp(argv[optind], "") == 0)) {
+                myArgs.argc = req->options;
+                lsb_throw("LSB_BAD_BSUBARGS", &myArgs);
+                return (-1);
+            }
+
+            if (mask & SUB_POST_EXEC) {
+                req->postExecCmd = argv[optind];
+                optind++;
+            }
+
+            break;
+        }
 
 	    req->options2 |= SUB2_MODIFY_PEND_JOB;
             checkSubDelOption (SUB_PRE_EXEC, "En");
@@ -4529,6 +4558,7 @@ char ch, next, *tmp_str=NULL; \
 		 dependCond);
     SET_PARM_STR(SUB_RES_REQ, "LSB_SUB_RES_REQ", jobSubReq, resReq);
     SET_PARM_STR(SUB_PRE_EXEC, "LSB_SUB_PRE_EXEC", jobSubReq, preExecCmd);
+    SET_PARM_STR(SUB_POST_EXEC, "LSB_SUB_POST_EXEC", jobSubReq, postExecCmd);
     SET_PARM_STR(SUB_LOGIN_SHELL, "LSB_SUB_LOGIN_SHELL", jobSubReq,
 		 loginShell);
     SET_PARM_STR(SUB_MAIL_USER, "LSB_SUB_MAIL_USER", jobSubReq, mailUser);
@@ -5015,6 +5045,8 @@ void modifyJobInformation(struct submit *jobSubReq)
 	     FIELD_OFFSET(submit,resReq),SUB_RES_REQ},
 	    {"LSB_SUB_PRE_EXEC",STRPARM,
 	     FIELD_OFFSET(submit,preExecCmd),SUB_PRE_EXEC},
+        {"LSB_SUB_POST_EXEC",STRPARM,
+	     FIELD_OFFSET(submit,postExecCmd),SUB_POST_EXEC},
 	    {"LSB_SUB_LOGIN_SHELL",STRPARM,
 	     FIELD_OFFSET(submit,loginShell),SUB_LOGIN_SHELL},
 	    {"LSB_SUB_MAIL_USER",STRPARM,

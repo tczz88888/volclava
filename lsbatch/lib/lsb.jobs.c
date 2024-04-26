@@ -362,6 +362,7 @@ lsb_readjobinfo(int *more)
     jobInfo.submit.chkpntDir = jobInfoReply.jobBill->chkpntDir;
     jobInfo.submit.dependCond = jobInfoReply.jobBill->dependCond;
     jobInfo.submit.preExecCmd = jobInfoReply.jobBill->preExecCmd;
+    jobInfo.submit.postExecCmd = jobInfoReply.jobBill->postExecCmd;
     jobInfo.submit.chkpntPeriod = jobInfoReply.jobBill->chkpntPeriod;
     jobInfo.submit.numAskedHosts = jobInfoReply.jobBill->numAskedHosts;
     jobInfo.submit.askedHosts = jobInfoReply.jobBill->askedHosts;

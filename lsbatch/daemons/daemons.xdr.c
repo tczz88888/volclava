@@ -40,7 +40,7 @@ bool_t
 xdr_jobSpecs (XDR *xdrs, struct jobSpecs *jobSpecs, struct LSFHeader *hdr)
 {
     static char fname[] = "xdr_jobSpecs";
-    char *sp[15];
+    char *sp[16];
     char *pTemp;
     int i, nLimits;
     int jobArrId, jobArrElemId;
@@ -165,6 +165,7 @@ xdr_jobSpecs (XDR *xdrs, struct jobSpecs *jobSpecs, struct LSFHeader *hdr)
     sp[7] = jobSpecs->command;
     sp[8] = jobSpecs->jobName;
     sp[9] = jobSpecs->preExecCmd;
+    sp[15] = jobSpecs->postExecCmd;
     sp[10] = jobSpecs->fromHost;
     sp[11] = jobSpecs->resReq;
 
@@ -181,7 +182,8 @@ xdr_jobSpecs (XDR *xdrs, struct jobSpecs *jobSpecs, struct LSFHeader *hdr)
           xdr_string(xdrs, &sp[7], MAXLINELEN) &&
           xdr_string(xdrs, &sp[8], MAXLINELEN) &&
           xdr_string(xdrs, &sp[9], MAXLINELEN) &&
-          xdr_string(xdrs, &sp[10], MAXHOSTNAMELEN))) { 
+          xdr_string(xdrs, &sp[15], MAXLINELEN) &&
+          xdr_string(xdrs, &sp[10], MAXHOSTNAMELEN))) {
 	ls_syslog(LOG_ERR, I18N_JOB_FAIL_S_S, fname, 
 		  lsb_jobid2str(tmpJobId), 
 		  "xdr_int", "jobFile");

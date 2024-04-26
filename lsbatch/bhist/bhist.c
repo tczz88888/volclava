@@ -1528,6 +1528,11 @@ void prtModifiedJob(struct jobModLog *jobModLog, struct bhistReq *bhistReq,
 	PRT_FMTSTR(prline);
     }
 
+    if (jobModLog->options & SUB_POST_EXEC) {
+        sprintf(prline, I18N(3377, "Post exec command changes to : %s") /* catgets 3377 */ , jobModLog->postExecCmd);
+        PRT_FMTSTR(prline);
+    }
+
     if (jobModLog->options & SUB_LOGIN_SHELL) {
         sprintf(prline, I18N(3378, "Log shell changes to : %s") /* catgets 3378 */, jobModLog->loginShell);
 	PRT_FMTSTR(prline);
@@ -1725,6 +1730,11 @@ void prtModifiedJob(struct jobModLog *jobModLog, struct bhistReq *bhistReq,
     if (jobModLog->delOptions & SUB_PRE_EXEC) {
         sprintf(prline, I18N(3410, "Pre exec command is disabled")); /* catgets 3410 */
 	PRT_FMTSTR(prline);
+    }
+
+    if (jobModLog->delOptions & SUB_POST_EXEC) {
+        sprintf(prline, I18N(3410, "Post exec command is disabled")); /* catgets 3410 */
+        PRT_FMTSTR(prline);
     }
 
     if (jobModLog->delOptions & SUB_LOGIN_SHELL) {

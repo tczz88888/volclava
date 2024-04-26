@@ -361,7 +361,13 @@ prtSubDetails(struct jobInfoEnt *job, char *hostPtr, float hostFactor)
         printf("%s", prline);
     }
 
-    
+    /* pre_exec_command string */
+    if (strlen(job->submit.postExecCmd)) {
+        sprintf(prline, ", Post-execute Command <%s>", job->submit.postExecCmd);
+        prtLine(prline);
+    }
+
+    /* User Specified Hosts */
     if (job->submit.numAskedHosts) {
         sprintf(prline, ", %s <%s>",
 		I18N(599, "Specified Hosts"),   /* catgets  599  */

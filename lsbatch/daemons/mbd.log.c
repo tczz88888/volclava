@@ -1266,6 +1266,7 @@ log_modifyjob(struct modifyReq * modReq, struct lsfAuth *auth)
     jobModLog->fromHost   = modReq->submitReq.fromHost;
     jobModLog->cwd   = modReq->submitReq.cwd;
     jobModLog->preExecCmd   = modReq->submitReq.preExecCmd;
+    jobModLog->postExecCmd   = modReq->submitReq.postExecCmd;
     jobModLog->mailUser   = modReq->submitReq.mailUser;
     jobModLog->projectName   = modReq->submitReq.projectName;
     jobModLog->niosPort   = modReq->submitReq.niosPort;
@@ -1440,6 +1441,7 @@ log_jobdata(struct jData * job, char *fname1, int type)
 
     jobNewLog->dependCond = jobBill->dependCond;
     jobNewLog->preExecCmd = jobBill->preExecCmd;
+    jobNewLog->postExecCmd = jobBill->postExecCmd;
     jobNewLog->mailUser = jobBill->mailUser;
 
     if (strcmp(jobBill->projectName, "") == 0) {
@@ -2177,6 +2179,7 @@ logFinishedjob(struct jData *job)
     jobFinishLog->resReq = jobBill->resReq;
     jobFinishLog->dependCond = jobBill->dependCond;
     jobFinishLog->preExecCmd = jobBill->preExecCmd;
+    jobFinishLog->postExecCmd = jobBill->postExecCmd;
     jobFinishLog->mailUser = jobBill->mailUser;
 
     if (strcmp(jobBill->projectName, "") == 0) {
@@ -3584,6 +3587,7 @@ replay_modifyjob2(char *filename, int lineNum)
     modifyReq.submitReq.fromHost = jobModLog->fromHost ;
     modifyReq.submitReq.cwd = jobModLog->cwd ;
     modifyReq.submitReq.preExecCmd = jobModLog->preExecCmd ;
+    modifyReq.submitReq.postExecCmd = jobModLog->postExecCmd ;
     modifyReq.submitReq.mailUser = jobModLog->mailUser ;
     modifyReq.submitReq.projectName = jobModLog->projectName ;
     modifyReq.submitReq.niosPort = jobModLog->niosPort ;
@@ -3682,6 +3686,7 @@ replay_jobdata(char *filename, int lineNum, char *fname)
     jobBill->inFileSpool = safeSave(jobNewLog->inFileSpool);
     jobBill->commandSpool = safeSave(jobNewLog->commandSpool);
     jobBill->preExecCmd = safeSave(jobNewLog->preExecCmd);
+    jobBill->postExecCmd = safeSave(jobNewLog->postExecCmd);
     jobBill->mailUser = safeSave(jobNewLog->mailUser);
     jobBill->dependCond = safeSave(jobNewLog->dependCond);
     jobBill->cwd = safeSave(jobNewLog->cwd);

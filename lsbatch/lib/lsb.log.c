@@ -496,6 +496,8 @@ freeLogRec(struct eventRec *logRec)
                 free(logRec->eventLog.jobNewLog.dependCond);
             if (logRec->eventLog.jobNewLog.preExecCmd)
                 free(logRec->eventLog.jobNewLog.preExecCmd);
+            if (logRec->eventLog.jobNewLog.postExecCmd)
+                free(logRec->eventLog.jobNewLog.postExecCmd);
             if (logRec->eventLog.jobNewLog.mailUser)
                 free(logRec->eventLog.jobNewLog.mailUser);
             if (logRec->eventLog.jobNewLog.projectName)
@@ -532,6 +534,7 @@ freeLogRec(struct eventRec *logRec)
             FREEUP(logRec->eventLog.jobModLog.fromHost);
             FREEUP(logRec->eventLog.jobModLog.cwd);
             FREEUP(logRec->eventLog.jobModLog.preExecCmd);
+            FREEUP(logRec->eventLog.jobModLog.postExecCmd);
             FREEUP(logRec->eventLog.jobModLog.mailUser);
             FREEUP(logRec->eventLog.jobModLog.projectName);
             FREEUP(logRec->eventLog.jobModLog.loginShell);
@@ -575,6 +578,8 @@ freeLogRec(struct eventRec *logRec)
                 free(logRec->eventLog.jobFinishLog.dependCond);
             if (logRec->eventLog.jobFinishLog.preExecCmd)
                 free(logRec->eventLog.jobFinishLog.preExecCmd);
+            if (logRec->eventLog.jobFinishLog.postExecCmd)
+                free(logRec->eventLog.jobFinishLog.postExecCmd);
 
             if (logRec->eventLog.jobFinishLog.numAskedHosts) {
                 for (i=0; i<logRec->eventLog.jobFinishLog.numAskedHosts; i++)
@@ -717,6 +722,7 @@ readJobNew(char *line, struct jobNewLog *jobNewLog)
 
     saveQStr(line, jobNewLog->dependCond);
     saveQStr(line, jobNewLog->preExecCmd);
+    saveQStr(line, jobNewLog->postExecCmd);
 
     copyQStr(line, MAX_CMD_DESC_LEN, 0, jobNewLog->jobName);
     copyQStr(line, MAX_CMD_DESC_LEN, 0, jobNewLog->command);
@@ -906,6 +912,8 @@ readJobMod(char *line, struct jobModLog *jobModLog)
 
     if (jobModLog->options & SUB_PRE_EXEC)
         saveQStr (line, jobModLog->preExecCmd);
+    if (jobModLog->options & SUB_POST_EXEC)
+        saveQStr (line, jobModLog->postExecCmd);
     if (jobModLog->options & SUB_MAIL_USER)
         saveQStr (line, jobModLog->mailUser);
     if (jobModLog->options & SUB_PROJECT_NAME)
@@ -1461,6 +1469,7 @@ readJobFinish(char *line, struct jobFinishLog *jobFinishLog, time_t eventTime)
     saveQStr(line, jobFinishLog->resReq);
     saveQStr(line, jobFinishLog->dependCond);
     saveQStr(line, jobFinishLog->preExecCmd);
+    saveQStr(line, jobFinishLog->postExecCmd);
     copyQStr(line, MAXHOSTNAMELEN, 1, jobFinishLog->fromHost);
     copyQStr(line, MAXFILENAMELEN, 0, jobFinishLog->cwd);
     copyQStr(line, MAXFILENAMELEN, 0, jobFinishLog->inFile);
@@ -1844,6 +1853,9 @@ writeJobNew(FILE *log_fp, struct jobNewLog *jobNewLog)
     subNewLine_(jobNewLog->preExecCmd);
     if (addQStr(log_fp, jobNewLog->preExecCmd) < 0)
         return (LSBE_SYS_CALL);
+    subNewLine_(jobNewLog->postExecCmd);
+    if (addQStr(log_fp, jobNewLog->postExecCmd) < 0)
+        return (LSBE_SYS_CALL);
     if (addQStr(log_fp, jobNewLog->jobName) < 0)
         return (LSBE_SYS_CALL);
     subNewLine_(jobNewLog->command);
@@ -2003,6 +2015,10 @@ writeJobMod(FILE *log_fp, struct jobModLog *jobModLog)
     subNewLine_(jobModLog->preExecCmd);
     if ((jobModLog->options & SUB_PRE_EXEC) &&
         (addQStr (log_fp, jobModLog->preExecCmd) < 0))
+        return (LSBE_SYS_CALL);
+    subNewLine_(jobModLog->postExecCmd);
+    if ((jobModLog->options & SUB_POST_EXEC) &&
+        (addQStr (log_fp, jobModLog->postExecCmd) < 0))
         return (LSBE_SYS_CALL);
     if ((jobModLog->options & SUB_MAIL_USER) &&
         (addQStr (log_fp, jobModLog->mailUser) < 0))
@@ -2409,6 +2425,8 @@ writeJobFinish(FILE *log_fp, struct jobFinishLog *jobFinishLog)
     if (addQStr(log_fp, jobFinishLog->dependCond) < 0)
         return (LSBE_SYS_CALL);
     if (addQStr(log_fp, jobFinishLog->preExecCmd) < 0)
+        return (LSBE_SYS_CALL);
+    if (addQStr(log_fp, jobFinishLog->postExecCmd) < 0)
         return (LSBE_SYS_CALL);
     if (addQStr(log_fp, jobFinishLog->fromHost) < 0)
         return (LSBE_SYS_CALL);

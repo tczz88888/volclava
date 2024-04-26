@@ -267,6 +267,7 @@ extern int acctMapOk(struct jobCard *);
 extern int acctMapTo(struct jobCard *);
 extern int postJobSetup(struct jobCard *);
 extern void runUPre(struct jobCard *);
+extern int runUPost(struct jobCard *);
 extern int reniceJob(struct jobCard *);
 extern int updateRUsageFromSuper(struct jobCard *jp, char *mbuf);
 extern void sbdChild(char *, char *);

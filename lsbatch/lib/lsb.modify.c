@@ -60,6 +60,7 @@ lsb_modify(struct submit *jobSubReq, struct submitReply *submitRep, LS_LONG_INT 
     subNewLine_(jobSubReq->resReq);
     subNewLine_(jobSubReq->dependCond);
     subNewLine_(jobSubReq->preExecCmd);
+    subNewLine_(jobSubReq->postExecCmd);
     subNewLine_(jobSubReq->mailUser);
     subNewLine_(jobSubReq->jobName);
     subNewLine_(jobSubReq->queue);

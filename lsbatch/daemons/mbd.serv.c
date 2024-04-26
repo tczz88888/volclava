@@ -80,10 +80,13 @@ do_submitReq(XDR *xdrs,
 
     reply = newJob (&subReq, &submitReply, chfd, auth, schedule, dispatch,
                     jobData);
+
+    ls_syslog(LOG_DEBUG, "do_submitReq: receive job %d with postExecCmd=%s", submitReply.jobId, subReq.postExecCmd);
+
 sendback:
     if (reply != 0 || submitReply.jobId <= 0 ) {
         if (logclass & (LC_TRACE | LC_EXEC )) {
-            ls_syslog(LOG_DEBUG, "Job submission Failed due reason <%d> job <%d > JobName<%s> queue <%s> reqReq <%s> hostSpec <%s>  subHomeDir <%s> inFile <%s>  outFile <%s> errFile<%s> command <%s> inFileSpool <%s> commandSpool <%s> chkpntDir <%s> jobFile <%s> fromHost <%s>  cwd <%s> preExecCmd <%s>  mailUser <%s> projectName <%s> loginShell <%s> schedHostType <%s> numAskedHosts <%d> nxf <%d>  ",
+            ls_syslog(LOG_DEBUG, "Job submission Failed due reason <%d> job <%d > JobName<%s> queue <%s> reqReq <%s> hostSpec <%s>  subHomeDir <%s> inFile <%s>  outFile <%s> errFile<%s> command <%s> inFileSpool <%s> commandSpool <%s> chkpntDir <%s> jobFile <%s> fromHost <%s>  cwd <%s> preExecCmd <%s> postExecCmd <%s>  mailUser <%s> projectName <%s> loginShell <%s> schedHostType <%s> numAskedHosts <%d> nxf <%d>  ",
                       reply,(nextJobId -1),
                       subReq.jobName,subReq.queue,
                       subReq.resReq,subReq.hostSpec,
@@ -92,14 +95,14 @@ sendback:
                       subReq.command,subReq.inFileSpool,
                       subReq.commandSpool,subReq.chkpntDir,
                       subReq.jobFile,subReq.fromHost,
-                      subReq.cwd, subReq.preExecCmd,
+                      subReq.cwd, subReq.preExecCmd, subReq.postExecCmd,
                       subReq.mailUser,subReq.projectName,
                       subReq.loginShell,subReq.schedHostType,
                       subReq.numAskedHosts,subReq.nxf);
         }
     }
     if (logclass & (LC_TRACE | LC_EXEC )) {
-        ls_syslog(LOG_DEBUG, "Job submission before sendBack reply <%d> job <%d > JobName <%s> queue <%s> reqReq <%s> hostSpec <%s> subHomeDir <%s> inFile <%s>  outFile <%s> errFile<%s> command <%s> inFileSpool <%s> commandSpool <%s> chkpntDir <%s>  jobFile <%s> fromHost <%s>  cwd <%s> preExecCmd <%s>  mailUser <%s> projectName <%s> loginShell <%s> schedHostType <%s>  numAskedHosts <%d> nxf <%d>  ",
+        ls_syslog(LOG_DEBUG, "Job submission before sendBack reply <%d> job <%d > JobName <%s> queue <%s> reqReq <%s> hostSpec <%s> subHomeDir <%s> inFile <%s>  outFile <%s> errFile<%s> command <%s> inFileSpool <%s> commandSpool <%s> chkpntDir <%s>  jobFile <%s> fromHost <%s>  cwd <%s> preExecCmd <%s> postExecCmd <%s> mailUser <%s> projectName <%s> loginShell <%s> schedHostType <%s>  numAskedHosts <%d> nxf <%d>  ",
                   reply,(nextJobId -1),
                   subReq.jobName,subReq.queue,
                   subReq.resReq,subReq.hostSpec,
@@ -108,7 +111,7 @@ sendback:
                   subReq.command,subReq.inFileSpool,
                   subReq.commandSpool,subReq.chkpntDir,
                   subReq.jobFile,subReq.fromHost,
-                  subReq.cwd, subReq.preExecCmd,
+                  subReq.cwd, subReq.preExecCmd, subReq.postExecCmd,
                   subReq.mailUser,subReq.projectName,
                   subReq.loginShell,subReq.schedHostType,
                   subReq.numAskedHosts,subReq.nxf);
@@ -402,6 +405,7 @@ jobInfoReplyXdrBufLen(struct jobInfoReply *jobInfoReplyPtr)
     len += ALIGNWORD_(MAXHOSTNAMELEN);
     len += ALIGNWORD_(MAXFILENAMELEN);
     len += ALIGNWORD_(strlen(jobInfoReply.jobBill->preExecCmd) + 1);
+    len += ALIGNWORD_(strlen(jobInfoReply.jobBill->postExecCmd) + 1);
     len += ALIGNWORD_(strlen(jobInfoReply.jobBill->mailUser) + 1);
     len += ALIGNWORD_(strlen(jobInfoReply.jobBill->projectName) + 1);
     len += ALIGNWORD_(strlen(jobInfoReply.jobBill->loginShell) + 1);

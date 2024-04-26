@@ -83,6 +83,7 @@ job_checking (void)
     
     for (jobCard = jobQueHead->forw; (jobCard != jobQueHead); 
 					 jobCard = nextJob) {
+        ls_syslog(LOG_DEBUG, "job_checking: jobCard job %d with postExecCmd=%s", jobCard->jobSpecs.jobId, jobCard->jobSpecs.postExecCmd);
 
 	nextJob = jobCard->forw;         
         if (IS_FINISH(jobCard->jobSpecs.jStatus)

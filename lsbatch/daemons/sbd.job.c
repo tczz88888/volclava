@@ -1176,6 +1176,15 @@ finishJob(struct jobCard *jobCard)
         }
     }
 
+    if (jobCard->jobSpecs.options & SUB_POST_EXEC) {
+        if (runUPost(jobCard) != 0) {
+            hasError = -1;
+            ls_syslog(LOG_ERR, "\
+%s: failed to run command post for job %s", __func__,
+                      lsb_jobid2str(jobCard->jobSpecs.jobId));
+        }
+    }
+
     if (runQPost(jobCard) != 0) {
         hasError = -1;
         ls_syslog(LOG_ERR, "\
@@ -1789,6 +1798,8 @@ send_results (struct jobCard *jp)
                               jp->jobSpecs.command);
                     ls_syslog(LOG_DEBUG, "Job line: %s",
                               line);
+                    ls_syslog(LOG_DEBUG, "Job postExec: %s",
+                              jp->jobSpecs.postExecCmd);
 
                     if ( ( k == 1 )
                          && (jp->jobSpecs.options2 & SUB2_JOB_CMD_SPOOL ) ) {
@@ -3599,6 +3610,60 @@ runUPre(struct jobCard *jp)
 
     collectPreStatus(jp, pid, "runUPre");
     jp->jobSpecs.jStatus &= ~JOB_STAT_PRE_EXEC;
+}
+
+int
+runUPost(struct jobCard *jp)
+{
+    static char fname[]="runUPost";
+    int pid, i;
+    char errMsg[MAXLINELEN];
+
+    if ((pid = fork()) < 0) {
+        sprintf(errMsg, I18N_JOB_FAIL_S_M, fname,
+                lsb_jobid2str(jp->jobSpecs.jobId), "fork");
+        sbdSyslog(LOG_ERR, errMsg);
+        jobSetupStatus(JOB_STAT_PEND, PEND_SBD_NO_PROCESS, jp);
+        return -1;
+    }
+
+    if (pid == 0) {
+
+        closeBatchSocket();
+        if (getuid() == batchId) {
+
+            chuser(batchId);
+            lsfSetUid(jp->jobSpecs.execUid);
+        }
+
+        for (i = 1; i < NSIG; i++)
+            Signal_(i, SIG_DFL);
+
+        Signal_(SIGHUP, SIG_IGN);
+
+        lsfExecLog(jp->jobSpecs.postExecCmd);
+
+        execl("/bin/sh", "/bin/sh", "-c", jp->jobSpecs.postExecCmd, NULL);
+        sprintf(errMsg, I18N_JOB_FAIL_S_M, fname,
+                lsb_jobid2str(jp->jobSpecs.jobId), "execl");
+        sbdSyslog(LOG_ERR, errMsg);
+        sbdSyslog(LOG_ERR, jp->jobSpecs.postExecCmd);
+        exit(-1);
+    }
+
+    if (pid) {
+        if (waitpid(pid, NULL, 0) < 0) {
+            chuser(batchId);
+            ls_syslog(LOG_ERR, "\
+%s: waitpid(%d) failed for upost for job <%d>: %m",
+                      __func__, pid, jp->jobSpecs.jobId);
+            chuser(jp->jobSpecs.execUid);
+            return -1;
+        }
+//        collectPreStatus(jp, pid, "runUPost");
+        jp->jobSpecs.jStatus &= ~JOB_STAT_POST_EXEC;
+        return 0;
+    }
 }
 
 static void

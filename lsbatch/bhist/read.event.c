@@ -242,6 +242,7 @@ read_newjob(struct eventRec *log)
     strcpy(submitPtr->command, jobNewLog->command);
 
     strcpy(submitPtr->preExecCmd, jobNewLog->preExecCmd);
+    strcpy(submitPtr->postExecCmd, jobNewLog->postExecCmd);
     strcpy(submitPtr->mailUser, jobNewLog->mailUser);
     strcpy(submitPtr->projectName, jobNewLog->projectName);
 
@@ -349,6 +350,7 @@ copyJobModLog(struct jobModLog *des, struct jobModLog *src)
     des->cwd        = putstr_(src->cwd);
 
     des->preExecCmd = putstr_(src->preExecCmd);
+    des->postExecCmd = putstr_(src->postExecCmd);
     des->mailUser   = putstr_(src->mailUser);
     des->projectName= putstr_(src->projectName);
 
@@ -410,6 +412,7 @@ copyJobInfoEnt(struct jobInfoEnt *jobInfo)
     strcpy(submitPtr->command, jobInfo->submit.command);
 
     strcpy(submitPtr->preExecCmd, jobInfo->submit.preExecCmd);
+    strcpy(submitPtr->postExecCmd, jobInfo->submit.postExecCmd);
     strcpy(submitPtr->mailUser, jobInfo->submit.mailUser);
     strcpy(submitPtr->projectName, jobInfo->submit.projectName);
 
@@ -449,6 +452,7 @@ freeJobInfoEnt(struct jobInfoEnt *jobInfoEnt)
     FREEUP(jobInfoEnt->submit.chkpntDir);
     FREEUP(jobInfoEnt->submit.dependCond);
     FREEUP(jobInfoEnt->submit.preExecCmd);
+    FREEUP(jobInfoEnt->submit.postExecCmd);
     FREEUP(jobInfoEnt->submit.mailUser);
     FREEUP(jobInfoEnt->submit.projectName);
     FREEUP(jobInfoEnt->submit.loginShell);
@@ -1224,6 +1228,7 @@ initJobInfo (void)
     submitPtr->chkpntDir   = malloc(MAXFILENAMELEN);
     submitPtr->dependCond  = malloc(6 * MAXLINELEN);
     submitPtr->preExecCmd  = malloc(MAXLINELEN);
+    submitPtr->postExecCmd = malloc(MAXLINELEN);
     submitPtr->mailUser    = malloc(MAXHOSTNAMELEN);
     submitPtr->projectName = malloc(MAX_LSB_NAME_LEN);
     submitPtr->loginShell  = malloc(MAX_LSB_NAME_LEN);
@@ -1245,6 +1250,7 @@ initJobInfo (void)
     submitPtr->chkpntDir[0]   = '\0';
     submitPtr->dependCond[0]  = '\0';
     submitPtr->preExecCmd[0]  = '\0';
+    submitPtr->postExecCmd[0] = '\0';
     submitPtr->mailUser[0]  = '\0';
     submitPtr->projectName[0] = '\0';
     submitPtr->loginShell[0] = '\0';

@@ -2365,6 +2365,7 @@ packJobSpecs (struct jData *jDataPtr, struct jobSpecs *jobSpecs)
 
     strcpy (jobSpecs->mailUser, jDataPtr->shared->jobBill.mailUser);
     strcpy (jobSpecs->preExecCmd, jDataPtr->shared->jobBill.preExecCmd);
+    strcpy (jobSpecs->postExecCmd, jDataPtr->shared->jobBill.postExecCmd);
     strcpy (jobSpecs->projectName, jDataPtr->shared->jobBill.projectName);
     jobSpecs->niosPort = jDataPtr->shared->jobBill.niosPort;
     jobSpecs->loginShell = jDataPtr->shared->jobBill.loginShell;
@@ -6408,6 +6409,7 @@ copyJobBill (struct submitReq *subReq, struct submitReq *jobBill, LS_LONG_INT jo
     jobBill->resReq = safeSave(subReq->resReq);
     jobBill->dependCond = safeSave(subReq->dependCond);
     jobBill->preExecCmd = safeSave(subReq->preExecCmd);
+    jobBill->postExecCmd = safeSave(subReq->postExecCmd);
     jobBill->schedHostType = safeSave(subReq->schedHostType);
 
     if (subReq->options & SUB_LOGIN_SHELL)
@@ -6594,6 +6596,7 @@ freeSubmitReq (struct submitReq *jobBill)
     FREEUP (jobBill->commandSpool);
     FREEUP (jobBill->chkpntDir);
     FREEUP (jobBill->preExecCmd);
+    FREEUP (jobBill->postExecCmd);
     FREEUP (jobBill->mailUser);
     FREEUP (jobBill->projectName);
     FREEUP (jobBill->cwd);
@@ -6732,6 +6735,7 @@ mergeSubReq (struct submitReq *to, struct submitReq *old,
     mergeStrField(dependCond, SUB_DEPEND_COND);
     mergeStrField(resReq, SUB_RES_REQ);
     mergeStrField(preExecCmd, SUB_PRE_EXEC);
+    mergeStrField(postExecCmd, SUB_POST_EXEC);
     mergeStrField(mailUser, SUB_MAIL_USER);
     mergeStrField(projectName, SUB_PROJECT_NAME);
     mergeStrField(loginShell, SUB_LOGIN_SHELL);
@@ -7461,6 +7465,7 @@ initSubmitReq(struct submitReq *jobBill)
     jobBill->commandSpool = NULL;
     jobBill->chkpntDir = NULL;
     jobBill->preExecCmd = NULL;
+    jobBill->postExecCmd = NULL;
     jobBill->mailUser = NULL;
     jobBill->projectName = NULL;
     jobBill->cwd = NULL;

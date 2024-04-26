@@ -63,6 +63,7 @@ xdr_submitReq (XDR *xdrs, struct submitReq *submitReq, struct LSFHeader *hdr)
         FREEUP (submitReq->command);
         FREEUP (submitReq->jobName);
         FREEUP (submitReq->preExecCmd);
+        FREEUP (submitReq->postExecCmd);
         FREEUP (submitReq->dependCond);
         FREEUP (submitReq->resReq);
         FREEUP (submitReq->mailUser);
@@ -94,7 +95,8 @@ xdr_submitReq (XDR *xdrs, struct submitReq *submitReq, struct LSFHeader *hdr)
          xdr_string(xdrs, &submitReq->inFile, MAXFILENAMELEN) &&
          xdr_string(xdrs, &submitReq->outFile, MAXFILENAMELEN) &&
          xdr_string(xdrs, &submitReq->errFile, MAXFILENAMELEN) &&
-	 xdr_var_string(xdrs, &submitReq->preExecCmd) &&
+         xdr_var_string(xdrs, &submitReq->preExecCmd) &&
+         xdr_var_string(xdrs, &submitReq->postExecCmd) &&
          xdr_string(xdrs, &submitReq->hostSpec, MAXHOSTNAMELEN))) {
         return (FALSE);
     }

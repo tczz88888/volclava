@@ -2035,6 +2035,7 @@ writeChkLog(char *fn, char *chkpntDir, struct jobCard *jp, struct hostent *fromH
     strcpy(jobNewLog->command, jp->jobSpecs.command);
     jobNewLog->dependCond = "";
     jobNewLog->preExecCmd = "";
+    jobNewLog->postExecCmd = "";
 
     jobNewLog->projectName = jp->jobSpecs.projectName;
 

@@ -487,6 +487,7 @@
 #define  SUB_PTY            0x8000000
 #define  SUB_PTY_SHELL      0x10000000
 #define  SUB_PACK           0x20000000
+#define  SUB_POST_EXEC      0x40000000
 
 #define  SUB2_HOLD          0x01
 #define  SUB2_MODIFY_CMD    0x02
@@ -545,6 +546,7 @@ struct submit {
     int     nxf;
     struct xFile *xf;
     char    *preExecCmd;
+    char    *postExecCmd;
     char    *mailUser;
     int    delOptions;
     int    delOptions2;
@@ -930,6 +932,7 @@ struct jobNewLog {
     int    nxf;
     struct xFile *xf;
     char   *preExecCmd;
+    char   *postExecCmd;
     char   *mailUser;
     char   *projectName;
     int    niosPort;
@@ -987,6 +990,7 @@ struct jobModLog {
     char    *cwd;
 
     char    *preExecCmd;
+    char    *postExecCmd;
     char    *mailUser;
     char    *projectName;
 
@@ -1208,6 +1212,7 @@ struct jobFinishLog {
     struct  lsfRusage lsfRusage;
     char   *dependCond;
     char   *preExecCmd;
+    char   *postExecCmd;
     char   *mailUser;
     char   *projectName;
     int    exitStatus;
