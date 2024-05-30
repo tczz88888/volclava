@@ -3384,8 +3384,8 @@ runQPost(struct jobCard *jp)
 %s: waitpid(%d) failed for qpre for job <%d>: %m",
                       __func__, pid, jp->jobSpecs.jobId);
             chuser(jp->jobSpecs.execUid);
+            return -1;
         }
-        return -1;
     }
 
     chdir("/tmp");
@@ -3430,14 +3430,17 @@ runQPost(struct jobCard *jp)
 
     execvp ("/bin/sh", myargv);
 
-    sprintf(val, "\
+    if (errno != 0) {
+        sprintf(val, "\
 %s: queue's post-exec command %s failed for job %s: %s",
-            __func__, jp->jobSpecs.postCmd,
-            lsb_jobid2str(jp->jobSpecs.jobId),
-            strerror(errno));
-    sbdSyslog(LOG_ERR, val);
+                __func__, jp->jobSpecs.postCmd,
+                lsb_jobid2str(jp->jobSpecs.jobId),
+                strerror(errno));
+        sbdSyslog(LOG_ERR, val);
 
-    exit(-1);
+        exit(-1);
+    }
+
 }
 
 /* chPrePostUser()
