@@ -2390,6 +2390,9 @@ jobGone (struct jobCard *jp)
             else {
                 if ( jp->postJobStarted != 0 ) {
                     if (jp->w_status) {
+                        ls_syslog(LOG_ERR,
+                                  "jobGone: Checking if job %s pid %d gone, jp->w_status=%d.",
+                                  lsb_jobid2str(jp->jobSpecs.jobId), jp->jobSpecs.jobPid, jp->w_status);
                         SBD_SET_STATE(jp, JOB_STAT_PERR);
                     }
                     else {
@@ -3620,6 +3623,7 @@ runUPost(struct jobCard *jp)
 {
     static char fname[]="runUPost";
     int pid, i;
+    char val[MAXLINELEN];
     char errMsg[MAXLINELEN];
 
     if ((pid = fork()) < 0) {
@@ -3649,9 +3653,16 @@ runUPost(struct jobCard *jp)
         execl("/bin/sh", "/bin/sh", "-c", jp->jobSpecs.postExecCmd, NULL);
         sprintf(errMsg, I18N_JOB_FAIL_S_M, fname,
                 lsb_jobid2str(jp->jobSpecs.jobId), "execl");
-        sbdSyslog(LOG_ERR, errMsg);
-        sbdSyslog(LOG_ERR, jp->jobSpecs.postExecCmd);
-        exit(-1);
+        sbdSyslog(LOG_INFO, errMsg);
+        sbdSyslog(LOG_INFO, jp->jobSpecs.postExecCmd);
+        if (errno != 0) {
+            sprintf(val, "%s: user's post-exec command %s failed for job %s: %s",
+                    __func__, jp->jobSpecs.postExecCmd,
+                    lsb_jobid2str(jp->jobSpecs.jobId),
+                    strerror(errno));
+            sbdSyslog(LOG_ERR, val);
+            exit(-1);
+        }
     }
 
     if (pid) {
@@ -3663,10 +3674,11 @@ runUPost(struct jobCard *jp)
             chuser(jp->jobSpecs.execUid);
             return -1;
         }
-//        collectPreStatus(jp, pid, "runUPost");
-        jp->jobSpecs.jStatus &= ~JOB_STAT_POST_EXEC;
-        return 0;
     }
+    jp->jobSpecs.jStatus &= ~JOB_STAT_POST_EXEC;
+//    jp->w_status = 0;
+//    SBD_SET_STATE(jp, JOB_STAT_PDONE)
+    return 0;
 }
 
 static void
