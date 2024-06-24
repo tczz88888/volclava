@@ -242,7 +242,9 @@ read_newjob(struct eventRec *log)
     strcpy(submitPtr->command, jobNewLog->command);
 
     strcpy(submitPtr->preExecCmd, jobNewLog->preExecCmd);
-    strcpy(submitPtr->postExecCmd, jobNewLog->postExecCmd);
+    if (submitPtr->options & SUB_POST_EXEC){
+        strcpy(submitPtr->postExecCmd, jobNewLog->postExecCmd);
+    }
     strcpy(submitPtr->mailUser, jobNewLog->mailUser);
     strcpy(submitPtr->projectName, jobNewLog->projectName);
 

@@ -722,7 +722,9 @@ readJobNew(char *line, struct jobNewLog *jobNewLog)
 
     saveQStr(line, jobNewLog->dependCond);
     saveQStr(line, jobNewLog->preExecCmd);
-    saveQStr(line, jobNewLog->postExecCmd);
+    if (jobNewLog->options & SUB_POST_EXEC) {
+        saveQStr(line, jobNewLog->postExecCmd);
+    }
 
     copyQStr(line, MAX_CMD_DESC_LEN, 0, jobNewLog->jobName);
     copyQStr(line, MAX_CMD_DESC_LEN, 0, jobNewLog->command);
@@ -1469,7 +1471,9 @@ readJobFinish(char *line, struct jobFinishLog *jobFinishLog, time_t eventTime)
     saveQStr(line, jobFinishLog->resReq);
     saveQStr(line, jobFinishLog->dependCond);
     saveQStr(line, jobFinishLog->preExecCmd);
-    saveQStr(line, jobFinishLog->postExecCmd);
+    if (jobFinishLog->options & SUB_POST_EXEC) {
+        saveQStr(line, jobFinishLog->postExecCmd);
+    }
     copyQStr(line, MAXHOSTNAMELEN, 1, jobFinishLog->fromHost);
     copyQStr(line, MAXFILENAMELEN, 0, jobFinishLog->cwd);
     copyQStr(line, MAXFILENAMELEN, 0, jobFinishLog->inFile);
@@ -1853,9 +1857,11 @@ writeJobNew(FILE *log_fp, struct jobNewLog *jobNewLog)
     subNewLine_(jobNewLog->preExecCmd);
     if (addQStr(log_fp, jobNewLog->preExecCmd) < 0)
         return (LSBE_SYS_CALL);
-    subNewLine_(jobNewLog->postExecCmd);
-    if (addQStr(log_fp, jobNewLog->postExecCmd) < 0)
-        return (LSBE_SYS_CALL);
+    if (jobNewLog->options & SUB_POST_EXEC) {
+        subNewLine_(jobNewLog->postExecCmd);
+        if (addQStr(log_fp, jobNewLog->postExecCmd) < 0)
+            return (LSBE_SYS_CALL);
+    }
     if (addQStr(log_fp, jobNewLog->jobName) < 0)
         return (LSBE_SYS_CALL);
     subNewLine_(jobNewLog->command);
@@ -2016,10 +2022,14 @@ writeJobMod(FILE *log_fp, struct jobModLog *jobModLog)
     if ((jobModLog->options & SUB_PRE_EXEC) &&
         (addQStr (log_fp, jobModLog->preExecCmd) < 0))
         return (LSBE_SYS_CALL);
-    subNewLine_(jobModLog->postExecCmd);
-    if ((jobModLog->options & SUB_POST_EXEC) &&
-        (addQStr (log_fp, jobModLog->postExecCmd) < 0))
-        return (LSBE_SYS_CALL);
+
+    if (jobModLog->options & SUB_POST_EXEC) {
+        subNewLine_(jobModLog->postExecCmd);
+        if ((jobModLog->options & SUB_POST_EXEC) &&
+            (addQStr (log_fp, jobModLog->postExecCmd) < 0))
+            return (LSBE_SYS_CALL);
+    }
+
     if ((jobModLog->options & SUB_MAIL_USER) &&
         (addQStr (log_fp, jobModLog->mailUser) < 0))
         return (LSBE_SYS_CALL);
@@ -2426,8 +2436,10 @@ writeJobFinish(FILE *log_fp, struct jobFinishLog *jobFinishLog)
         return (LSBE_SYS_CALL);
     if (addQStr(log_fp, jobFinishLog->preExecCmd) < 0)
         return (LSBE_SYS_CALL);
-    if (addQStr(log_fp, jobFinishLog->postExecCmd) < 0)
-        return (LSBE_SYS_CALL);
+    if (jobFinishLog->options & SUB_POST_EXEC) {
+        if (addQStr(log_fp, jobFinishLog->postExecCmd) < 0)
+            return (LSBE_SYS_CALL);
+    }
     if (addQStr(log_fp, jobFinishLog->fromHost) < 0)
         return (LSBE_SYS_CALL);
     if (addQStr(log_fp, jobFinishLog->cwd) < 0)
