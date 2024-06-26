@@ -3387,8 +3387,8 @@ runQPost(struct jobCard *jp)
 %s: waitpid(%d) failed for qpre for job <%d>: %m",
                       __func__, pid, jp->jobSpecs.jobId);
             chuser(jp->jobSpecs.execUid);
-            return -1;
         }
+        return -1;
     }
 
     chdir("/tmp");
