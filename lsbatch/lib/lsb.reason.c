@@ -414,13 +414,15 @@ lsb_pendreason(int numReasons, int *rsTb, struct jobInfoHead *jInfoH,
         if (logclass & (LC_TRACE | LC_SCHED | LC_EXEC))
             ls_syslog(LOG_DEBUG2, "%s: hostId=%d, reason=%d reasonTb[%d]=%d",
                                   fname, hostId, reason, i, reasonTb[i]);
-        if (!hostId) {
-            sprintf (msgline, " %s;\n", getMsg(pendMsg, pendMsg_ID,  reason));
-            strcat (retMsg, msgline);
-            continue;
+
+        if (jInfoH && jInfoH->numHosts != 0 && jInfoH->hostNames != NULL) {
+            if (!hostId) {
+                // for single node cluster
+                strcpy(hostList, jInfoH->hostNames[hostId]);
+            } else {
+                strcpy (hostList, jInfoH->hostNames[hostId-1]);
+            }
         }
-        if (jInfoH && jInfoH->numHosts != 0 && jInfoH->hostNames != NULL)
-            strcpy (hostList, jInfoH->hostNames[hostId-1]);
         else
             num = 1;
 	
@@ -439,8 +441,12 @@ lsb_pendreason(int numReasons, int *rsTb, struct jobInfoHead *jInfoH,
                                        fname, j, hostIdJ);
             reasonTb[j] = 0;
             if (jInfoH && jInfoH->numHosts != 0 && jInfoH->hostNames != NULL) {
-                sprintf(hostList, "%s, %s", hostList, 
-                                   jInfoH->hostNames[hostIdJ-1]);
+                if (!hostIdJ) {
+                    sprintf(hostList, "%s, %s", hostList, jInfoH->hostNames[hostIdJ]);
+                } else {
+                    sprintf(hostList, "%s, %s", hostList,
+                            jInfoH->hostNames[hostIdJ-1]);
+                }
             } else
                 num++;
         }
