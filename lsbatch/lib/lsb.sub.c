@@ -4232,6 +4232,7 @@ subUsage_(int option, char **errMsg)
 	    fprintf(stderr, "\t\t[[-f \"lfile op [rfile]\"] ...] [-w depend_cond]\n");
 
 	    fprintf(stderr, "\t\t[-E \"pre_exec_command [argument ...]\"] [-Zs]\n");
+        fprintf(stderr, "\t\t[-Ep \"post_exec_command [argument ...]\"\n");
 	    fprintf(stderr, "\t\t[-sp job_priority]\n");
 	    fprintf(stderr, "\t\t[command [argument ...]]\n");
 

@@ -36,6 +36,8 @@
 .br
 \fB-E "\fRpre_exec_command [\fIargument \fR...]\fB"\fR
 .br
+\fB-Ep "\fRpost_exec_command [\fIargument \fR...]\fB"\fR
+.br
 \fB-f \fR \fB"\fRlocal_file op [\fIremote_file\fR]\fB" \fR...
 .br
 \fB-F \fRfile_limit 
@@ -448,6 +450,23 @@ the same user ID, environment, home, and working directory as the
 real job. If the pre-exec command is not in the user's normal execution 
 path (the $PATH variable), the full path name of the command must be 
 specified.
+
+.TP
+\fB-Ep\fR \fB"\fRpost_exec_command [arguments ...]\fB"\fR
+
+.IP
+Runs the specified job-based post-execution command on the
+execution host after the job finishes.
+
+.IP
+Queue-level post-execution commands (POST_EXEC in lsb.queues) run
+after job-level post-execution commands.
+
+.IP
+Note: The command path can contain up to 4094 characters for UNIX
+and Linux, or up to 255 characters for Windows, including the
+directory and file name.
+
 
 .TP 
 \fB-f\fR \fB"\fRlocal_file op [remote_file]\fB"\fR ...
