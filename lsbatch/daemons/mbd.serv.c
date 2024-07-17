@@ -580,15 +580,6 @@ packJobInfo(struct jData * jobData,
                     }
 
                 } /* for (hPtr = hostList->back; ...; ...) */
-
-                if (jReasonTb[0] != 0) {
-
-                    jobInfoReply.reasonTb[k++] = jReasonTb[0];
-                    if (debug && (logclass & LC_PEND)) {
-                        ls_syslog(LOG_DEBUG2, "%s: jReason[0]=%d",
-                                  fname, jReasonTb[0]);
-                    }
-                }
             }
             jobInfoReply.numReasons = k;
         }
