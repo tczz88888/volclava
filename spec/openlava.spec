@@ -270,6 +270,8 @@ sed -i "s:/opt/openlava-2.0:${_openlavatop}:g" ${_openlavatop}/etc/openlava
 /usr/bin/cp --backup=numbered ${_openlavatop}/etc/openlava.sh %{_sysconfdir}/profile.d
 /usr/bin/cp --backup=numbered ${_openlavatop}/etc/openlava.csh %{_sysconfdir}/profile.d
 /usr/bin/cp --backup=numbered  ${_openlavatop}/etc/openlava %{_sysconfdir}/init.d
+sed -i "s:/opt/openlava-2.0:${_openlavatop}:g" ${_openlavatop}/etc/lsf.conf
+
 
 # Register lava daemons
 /sbin/chkconfig --add openlava
