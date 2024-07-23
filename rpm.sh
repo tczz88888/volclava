@@ -8,6 +8,14 @@ set -x
 major="2"
 minor="0"
 
+GIT_LAST_DATE=$(git log -1 --pretty=format:"%ad" --date=short)
+GIT_LAST_DATE_FORMAT=$(date -d "${GIT_LAST_DATE}" "+%b %d %Y")
+sed -i "s:\" __DATE__\":${GIT_LAST_DATE_FORMAT}:g" lsf/lsf.h
+git config --global user.name "temp"
+git config --global user.email "temp@commit.com"
+git commit -a -m 'temp commit for make rpm with __DATE__'
+git show
+
 grep 4.6 /etc/redhat-release > /dev/null
 if [ "$?" == "0" ]; then
    echo "Cleaning..."
