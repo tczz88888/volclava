@@ -8,6 +8,7 @@ set -x
 major="2"
 minor="0"
 
+GIT_LAST_COMMIT=$(git log -1  --pretty=format:%H)
 GIT_LAST_DATE=$(git log -1 --pretty=format:"%ad" --date=short)
 GIT_LAST_DATE_FORMAT=$(date -d "${GIT_LAST_DATE}" "+%b %d %Y")
 sed -i "s:\" __DATE__\":${GIT_LAST_DATE_FORMAT}:g" lsf/lsf.h
@@ -28,6 +29,7 @@ if [ "$?" == "0" ]; then
    | gzip > /usr/src/redhat/SOURCES/openlava-${major}.${minor}.tar.gz
    cp spec/openlava.spec /usr/src/redhat/SPECS/openlava.spec
 
+  git reset --hard ${GIT_LAST_COMMIT}
   echo "RPM building..."
   rpmbuild -ba --target x86_64 /usr/src/redhat/SPECS/openlava.spec
   if [ "$?" != 0 ]; then
@@ -47,6 +49,7 @@ echo "Archving source code..."
 git archive --format=tar --prefix="openlava-${major}.${minor}/" HEAD \
    | gzip > ~/rpmbuild/SOURCES/openlava-${major}.${minor}.tar.gz
 cp spec/openlava.spec ~/rpmbuild/SPECS/openlava.spec
+git reset --hard ${GIT_LAST_COMMIT}
 
 echo "RPM building..."
 rpmbuild -ba --target x86_64 ~/rpmbuild/SPECS/openlava.spec
