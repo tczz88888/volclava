@@ -393,19 +393,12 @@ prtLimit (int rLimit, char *hostSpec, float hostFactor)
     memset(str,' ',50);
     if (hostFactor != 0.0) {
         norCpuLimit =  rLimit/(hostFactor * 60.0);
-	if (hostSpec != NULL)
-        {
-            sprintf(str," %-.1f min of %s", norCpuLimit, hostSpec);
-	    str[strlen(str)]=' ';
-            str[25]='\0';
-        }
-        else
-	{
-	    sprintf(str," %-.1f min", norCpuLimit);
-	    str[strlen(str)]=' ';
-            str[25]='\0';
-	}
-	printf("%s",str);
+
+        sprintf(str," %-.1f min", norCpuLimit);
+        str[strlen(str)]=' ';
+        str[25]='\0';
+
+        printf("%s",str);
     }
 } 
 
