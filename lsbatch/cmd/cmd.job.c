@@ -1467,12 +1467,12 @@ prtJobStartUF(struct jobInfoEnt *job, int prtFlag, int jobPid, int tFormat)
                 if (tBuff[0] == '\0')
                     sprintf(prline, "%s: %s",
                             _i18n_ctime(ls_catd, CTIME_FORMAT_a_b_d_T, &startTime),
-                            I18N(608, "Started on")); /* catgets  608  */
+                            I18N(608, "Started")); /* catgets  608  */
                 else
                     sprintf(prline, "%s:%s %s",
                             _i18n_ctime(ls_catd, CTIME_FORMAT_a_b_d_T, &startTime),
                             tBuff,
-                            I18N(609, "started on")); /* catgets  609  */
+                            I18N(609, "started")); /* catgets  609  */
             }
             else
             {
@@ -1490,12 +1490,10 @@ prtJobStartUF(struct jobInfoEnt *job, int prtFlag, int jobPid, int tFormat)
 
 
         printf("%s", prline);
-        if (job->numExHosts > 1) {
-            sprintf(prline, " %d %s",
-                    job->numExHosts,
-                    I18N(612, "Hosts/Processors")); /* catgets  612  */
-            printf("%s", prline);
-        }
+        sprintf(prline, " %d %s",
+                job->numExHosts,
+                I18N(612, "Task(s) on Host(s)")); /* catgets  612  */
+        printf("%s", prline);
 
         if (lsbParams[LSB_SHORT_HOSTLIST].paramValue && job->numExHosts > 1
             && strcmp(lsbParams[LSB_SHORT_HOSTLIST].paramValue, "1") == 0) {
@@ -1510,6 +1508,27 @@ prtJobStartUF(struct jobInfoEnt *job, int prtFlag, int jobPid, int tFormat)
                 printf("%s", prline);
             }
         }
+
+
+        sprintf(prline, ", Allocated %d %s",
+                job->numExHosts,
+                I18N(612, "Slot(s) on Host(s)")); /* catgets  612  */
+        printf("%s", prline);
+
+        if (lsbParams[LSB_SHORT_HOSTLIST].paramValue && job->numExHosts > 1
+            && strcmp(lsbParams[LSB_SHORT_HOSTLIST].paramValue, "1") == 0) {
+            for (i = 0; i < hostList->listSize; i++) {
+                sprintf(prline, " <%d*%s>", hostList->counter[i],
+                        hostList->names[i]);
+                printf("%s", prline);
+            }
+        } else {
+            for (i = 0; i < job->numExHosts; i++) {
+                sprintf(prline, " <%s>", job->exHosts[i]);
+                printf("%s", prline);
+            }
+        }
+
 
         if (job->execHome && strcmp (job->execHome, "")) {
             sprintf(prline, ", %s <%s>",
