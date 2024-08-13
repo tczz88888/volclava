@@ -104,8 +104,8 @@ extern void prtErrMsg (struct submit *, struct submitReply *);
 extern void prtBTTime(struct jobInfoEnt *);
 extern void prtJobReserv(struct jobInfoEnt *);
 extern void prtJobReservUF(struct jobInfoEnt *);
-extern void displayLong (struct jobInfoEnt *, struct jobInfoHead *, float);
-extern void displayUF (struct jobInfoEnt *, struct jobInfoHead *, float);
+extern void displayLong(struct jobInfoEnt *, struct jobInfoHead *, float);
+extern void displayUF(struct jobInfoEnt *, struct jobInfoHead *, float, int, struct queueInfoEnt *);
 
 extern int lsbMode_;
 

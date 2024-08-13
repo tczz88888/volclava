@@ -1031,7 +1031,8 @@ displayLong (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
 }
 
 void
-displayUF (struct jobInfoEnt *job, struct jobInfoHead *jInfoH, float cpuFactor)
+displayUF(struct jobInfoEnt *job, struct jobInfoHead *jInfoH, float cpuFactor,
+        int numQueues, struct queueInfoEnt *queueInfo)
 {
     char *hostPtr, *sp;
     char hostName[MAXHOSTNAMELEN];
@@ -1039,6 +1040,9 @@ displayUF (struct jobInfoEnt *job, struct jobInfoHead *jInfoH, float cpuFactor)
     static int first = TRUE;
     static struct lsInfo *lsInfo;
     char prline[MAXLINELEN];
+
+    struct queueInfoEnt *qp;
+    int  i;
 
     if (first) {
         first = FALSE;
@@ -1121,6 +1125,16 @@ displayUF (struct jobInfoEnt *job, struct jobInfoHead *jInfoH, float cpuFactor)
         return;
     }
     TIMEIT(1, prtJobFinishUF(job, jInfoH), "prtJobFinishUF");
+
+    if (job->submit.rLimits[LSF_RLIMIT_RUN] < 0) {
+        for (i=0; i<numQueues; i++) {
+            qp = &(queueInfo[i]);
+            if (strcmp(qp->queue, job->submit.queue) == 0)
+                break;
+        }
+        job->submit.rLimits[LSF_RLIMIT_RUN] = qp->rLimits[LSF_RLIMIT_RUN];
+    }
+    prtResourceLimit(job->submit.rLimits, hostPtr, hostFactor, NULL);
 
     if (lsbMode_ & LSB_MODE_BATCH) {
         printf("\n %s:\n",
@@ -1391,9 +1405,6 @@ prtSubDetailsUF(struct jobInfoEnt *job, char *hostPtr, float hostFactor)
 
     sprintf(prline, ";\n");
     printf("%s", prline);
-
-    prtResourceLimit (job->submit.rLimits, hostPtr, hostFactor, NULL);
-
 }
 
 void

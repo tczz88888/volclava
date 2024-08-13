@@ -128,6 +128,12 @@ main (int argc, char **argv)
     char jobidStr[MAXLINELEN];
     char *jobInfoErrMsg = NULL;
 
+    int numQueues;
+    char **queues = NULL;
+    struct queueInfoEnt *queueInfo;
+    char *qHost = NULL;
+    char *qUser = NULL;
+
     rc = _i18n_init ( I18N_CAT_MIN );
 
     if (lsb_init(argv[0]) < 0) {
@@ -189,6 +195,7 @@ main (int argc, char **argv)
                                           queue,
                                           host,
                                           options)), "lsb_openjobinfo_a");
+
     if (jInfoH == NULL) {
 
         if (numJids >= 1) {
@@ -233,6 +240,12 @@ main (int argc, char **argv)
             exit(-1);
         }
     }
+
+    TIMEIT(0, (queueInfo = lsb_queueinfo(queues,
+                                         &numQueues,
+                                         qHost,
+                                         qUser,
+                                         0)), "lsb_queueinfo");
 
     options &= ~NO_PEND_REASONS;
     jobDisplayed = 0;
@@ -284,13 +297,13 @@ main (int argc, char **argv)
             }
             if (options & PEND_JOB) {
                 if (format == UF_FORMAT)
-                    displayUF(job, jInfoH, cpuFactor);
+                    displayUF(job, jInfoH, cpuFactor, numQueues, queueInfo);
                 else
                     displayLong(job, jInfoH, cpuFactor);
             }
             else {
                 if (format == UF_FORMAT)
-                    displayUF(job, NULL, cpuFactor);
+                    displayUF(job, NULL, cpuFactor, numQueues, queueInfo);
                 else
                     displayLong(job, NULL, cpuFactor);
             }
