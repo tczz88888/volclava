@@ -1136,6 +1136,14 @@ displayUF(struct jobInfoEnt *job, struct jobInfoHead *jInfoH, float cpuFactor,
     }
     prtResourceLimit(job->submit.rLimits, hostPtr, hostFactor, NULL);
 
+    if (job->runRusage.mem > 0) {
+        printf ("\n MEMORY USAGE:\n");
+        if (job->runRusage.mem > 1024)
+            printf(" MAX MEM: %d Mbytes;  AVG MEM: %d Mbytes\n", job->runRusage.mem/1024, job->runRusage.mem/1024);
+        else
+            printf(" MAX MEM: %d Kbytes;  AVG MEM: %d Kbytes\n", job->runRusage.mem, job->runRusage.mem);
+    }
+
     if (lsbMode_ & LSB_MODE_BATCH) {
         printf("\n %s:\n",
                "SCHEDULING PARAMETERS"); /* catgets  1469  */
@@ -1699,14 +1707,6 @@ prtJobRusageUF(struct jobInfoEnt *job)
     }
     sprintf(prline, "\n");
     printf("%s", prline);
-
-    if (job->runRusage.mem > 0) {
-        printf ("\n MEMORY USAGE:\n");
-        if (job->runRusage.mem > 1024)
-            printf(" MAX MEM: %d Mbytes;  AVG MEM: %d Mbytes\n", job->runRusage.mem/1024, job->runRusage.mem/1024);
-        else
-            printf(" MAX MEM: %d Kbytes;  AVG MEM: %d Kbytes\n", job->runRusage.mem, job->runRusage.mem);
-    }
 
 }
 
