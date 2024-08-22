@@ -1337,11 +1337,11 @@ prtSubDetailsUF(struct jobInfoEnt *job, char *hostPtr, float hostFactor)
         if (job->submit.numProcessors == job->submit.maxNumProcessors)
             sprintf(prline, ", %d %s",
                     job->submit.numProcessors,
-                    I18N(590, "Processors Requested"));  /* catgets  590  */
+                    I18N(590, "Task(s)"));  /* catgets  590  */
         else
             sprintf(prline, ", %d-%d %s", job->submit.numProcessors,
                     job->submit.maxNumProcessors,
-                    I18N(590, "Processors Requested"));
+                    I18N(590, "Task(s)"));
         printf("%s", prline);
     }
 
