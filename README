@@ -1,24 +1,10 @@
-# README for openlava 1.0 (2011)
+# README for volclava 1.0 (2024)
+#
+# Copyright (C) 2021 - 2024  Bytedance Ltd. and/or its affiliates
 # Copyright (C) 2011 - 2012  David Bigagli
 # Copyright (C) 2007 Platform Computing Inc
 #
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of version 2 of the GNU General Public License as
-# published by the Free Software Foundation.
-# 	
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software
-# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
-#
-
-Please vistus at: wwww.openlava.net 
-Find the source code at: https://github.com/openlava
-
-Thank you for your interest in openlava.
-
-The openlava team.
+# volclava is derived from Openlava 2.0, and the previous README
+# file is moved to README_OPENLAVA. We respect the contributions
+# of the predecessors and contributors of openlava 2.0, and we
+# will remain compliant with the GPL 2.0 agreement like openlava.
