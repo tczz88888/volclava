@@ -1,6 +1,7 @@
 #
 # openlava project
 #
+# Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
 # Copyright (C) 2011 David Bigagli
 #
 AC_INIT(openlava, 2.0)

@@ -1,4 +1,5 @@
 #
+# Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
 # Copyright (C) openlava foundation
 #
 INCLUDES = -I$(top_srcdir)/lsf  -I$(top_srcdir)/lsf/lib \

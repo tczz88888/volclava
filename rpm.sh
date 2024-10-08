@@ -2,6 +2,7 @@
 set -x
 
 #
+# Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
 # Copyright (c) 2011-2012 David Bigagli
 #
 
