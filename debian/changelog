@@ -1,4 +1,4 @@
-openlava (2.0-1.b.20240417) UNRELEASED; urgency=medium
+volclava (2.0-1.b.20240417) UNRELEASED; urgency=medium
 
   * support ubuntu/debian with tcl 6.8 and glibc 2.31-0
 
