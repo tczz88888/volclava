@@ -15,6 +15,7 @@
 	    - prefix not work in rpm install to costomize directory;
 	    - fix job slot limit reached while host is free;
 	3. define new project name as volclava in related files.
+	4. adapt to Ubuntu 20.04 and Rocky 8.10.
 
 2012-01-23  David Bigagli  <david@openlava.net>
 
