@@ -437,6 +437,12 @@ rm -rf ${_openlavatop}
 %attr(0755,openlava,openlava) %{_openlavatop}/work/logdir
 
 %changelog
+* Mon Nov 11 2024 Releasing volclava 1.0
+- Multiple feature support: bjobs -UF; bjobs -o/-json; bsub -pack; bsub -Ep; etc.
+- Multiple bugfix: MXJ not equal with maxCpus when set "!"; lshosts -l segmentation fault;
+- sbatchd block by greater than 1000 jobs; prefix not work in rpm install to costomize directory;
+- fix job slot limit reached while host is free.
+- Define new project name as volclava in related files.
 * Mon Jan 23 2012 Releasing openlava 2.0
 * Sun Oct 30 2011 modified the spec file so that autoconf creates
 - openlava configuration files and use the outptu variables to make

@@ -1,3 +1,21 @@
+2024-11-11  Mingze Li  <limingze.jiayou@bytedance.com>
+
+	* re-open as volclava 1.0.
+
+	* Summary of changes:
+	1. feature support:
+        - bjobs -UF;
+        - bjobs -o/-json;
+        - bsub -pack;
+        - bsub -Ep;
+	2. bugfix:
+	    - MXJ not equal with maxCpus when set "!";
+	    - lshosts -l segmentation fault;
+	    - sbatchd block by greater than 1000 jobs;
+	    - prefix not work in rpm install to costomize directory;
+	    - fix job slot limit reached while host is free;
+	3. define new project name as volclava in related files.
+
 2012-01-23  David Bigagli  <david@openlava.net>
 
 	* Created 2.0 branch.
