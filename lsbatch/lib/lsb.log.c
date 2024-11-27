@@ -3712,7 +3712,7 @@ updateJobIdIndexFile (char *indexFile, char *eventFile, int totalEventFile)
         }
 
         addedEventFile = totalEventFile;
-        sprintf(indexVersion, "%d", OPENLAVA_VERSION);
+        sprintf(indexVersion, "%d", VOLCLAVA_VERSION);
         rows = 0;
 
 

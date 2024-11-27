@@ -2072,7 +2072,7 @@ openEventFile(char *fname)
     chuser(batchId);
     logPtr = my_calloc(1, sizeof(struct eventRec), __func__);
 
-    sprintf(logPtr->version, "%d", OPENLAVA_VERSION);
+    sprintf(logPtr->version, "%d", VOLCLAVA_VERSION);
 
     return 0;
 }
@@ -2163,7 +2163,7 @@ logFinishedjob(struct jData *job)
     jobFinishLog = &logPtr->eventLog.jobFinishLog;
 
     logPtr->type = EVENT_JOB_FINISH;
-    sprintf(logPtr->version, "%d", OPENLAVA_VERSION);
+    sprintf(logPtr->version, "%d", VOLCLAVA_VERSION);
     jobFinishLog->jobId = LSB_ARRAY_JOBID(job->jobId);
     jobFinishLog->idx = LSB_ARRAY_IDX(job->jobId);
     jobFinishLog->userId = job->userId;

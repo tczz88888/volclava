@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
  * Copyright (C) David Bigagli
  * Copyright (C) 2007 Platform Computing Inc
  *
@@ -110,7 +111,7 @@ xdr_encodeMsg(XDR *xdrs,
 
     XDR_SETPOS(xdrs, LSF_HEADER_LEN);
 
-    hdr->version = OPENLAVA_VERSION;
+    hdr->version = VOLCLAVA_VERSION;
 
     if (auth) {
         if (!xdr_lsfAuth(xdrs, auth, hdr))

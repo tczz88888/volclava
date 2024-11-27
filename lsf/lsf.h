@@ -62,20 +62,20 @@ typedef long long int LS_LONG_INT;
 typedef unsigned long long LS_UNS_LONG_INT;
 
 #define LS_LONG_FORMAT ("%lld")
-#define _OPENLAVA_PROJECT_ "volclava project 1.0.0"
+#define _VOLCLAVA_PROJECT_ "volclava project 1.0.0"
 
 /* This is our identifier printed out by all daemons
  * and commands.
  */
 #ifdef REL_DATE
-#define _LS_VERSION_ (_OPENLAVA_PROJECT_", " REL_DATE"\n")
+#define _LS_VERSION_ (_VOLCLAVA_PROJECT_", " REL_DATE"\n")
 #else
-#define _LS_VERSION_ (_OPENLAVA_PROJECT_", " __DATE__"\n")
+#define _LS_VERSION_ (_VOLCLAVA_PROJECT_", " __DATE__"\n")
 #endif
 
 /* This is our current version.
  */
-#define OPENLAVA_VERSION   20
+#define VOLCLAVA_VERSION   20
 
 #define LSF_DEFAULT_SOCKS       15
 #define MAXLINELEN              PATH_MAX
@@ -771,7 +771,7 @@ typedef void (*SIGFUNCTYPE)(int);
 typedef struct stat LS_STAT_T;
 #define LSTMPDIR        lsTmpDir_
 #define LSDEVNULL       "/dev/null"
-#define LSETCDIR        "/opt/openlava/etc"
+#define LSETCDIR        "/opt/volclava/etc"
 #define closesocket close
 #define CLOSESOCKET(s) close((s))
 #define SOCK_CALL_FAIL(c) ((c) < 0 )

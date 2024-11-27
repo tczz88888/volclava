@@ -1,7 +1,7 @@
 #
-# openlava main configuration file lsf.conf
+# volclava main configuration file lsf.conf
 # This file is designed as Bourne Shell rc file 
-# and it is sourced by all openlava components.
+# and it is sourced by all volclava components.
 #
 LSF_SERVERDIR=@prefix@/sbin
 LSF_BINDIR=@prefix@/bin

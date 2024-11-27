@@ -18,12 +18,12 @@ fi
 
 . $LSF_ENVDIR/lsf.conf
 
-# install the openlava startup file
-cp $LSF_ENVDIR/openlava /etc/init.d
+# install the volclava startup file
+cp $LSF_ENVDIR/volclava /etc/init.d
 
-cp $LSF_ENVDIR/openlava.sh /etc/profile.d
-cp $LSF_ENVDIR/openlava.csh /etc/profile.d
+cp $LSF_ENVDIR/volclava.sh /etc/profile.d
+cp $LSF_ENVDIR/volclava.csh /etc/profile.d
 
 # configure the lava service to start at boot
-/sbin/chkconfig --add openlava
-/sbin/chkconfig openlava on
+/sbin/chkconfig --add volclava
+/sbin/chkconfig volclava on

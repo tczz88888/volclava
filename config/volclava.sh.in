@@ -1,6 +1,6 @@
 #
-# openlava.sh:
-#   Setup openlava environment variables
+# volclava.sh:
+#   Setup volclava environment variables
 #
 
 LSF_ENVDIR=@prefix@/etc

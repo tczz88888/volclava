@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
  * Copyright (C) 2011 David Bigagli
  *
  * $Id: lib.err.c 397 2007-11-26 19:04:00Z mblack $
@@ -210,9 +211,9 @@ verrlog_(int level, FILE *fp, const char *fmt, va_list ap)
     }
 
     if (level >= 0)
-        snprintf(verBuf, sizeof(verBuf), "%d %d %s", level, OPENLAVA_VERSION, buf);
+        snprintf(verBuf, sizeof(verBuf), "%d %d %s", level, VOLCLAVA_VERSION, buf);
     else
-        snprintf(verBuf, sizeof(verBuf), "%d %s", OPENLAVA_VERSION, buf);
+        snprintf(verBuf, sizeof(verBuf), "%d %s", VOLCLAVA_VERSION, buf);
 
     fputs(verBuf, fp);
     putc('\n', fp);

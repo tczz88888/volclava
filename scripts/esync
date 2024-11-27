@@ -8,5 +8,5 @@
 # -a archive mode: recursive, preserve links time and ownership
 # -z compress the data
 #
-rsync -e ssh -vaz bobrock: '/opt/openlava/etc/lsf.cluster.openlava /opt/openlava/etc/lsf.shared' /opt/openlava
+rsync -e ssh -vaz bobrock: '/opt/volclava/etc/lsf.cluster.volclava /opt/volclava/etc/lsf.shared' /opt/volclava
 

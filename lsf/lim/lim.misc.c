@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
  * Copyright (C) 2011 David Bigagli
  * Copyright (C) 2007 Platform Computing Inc
  *
@@ -121,7 +122,7 @@ findHostbyAddr(struct sockaddr_in *from,
          */
         if (limParams[LIM_NO_MIGRANT_HOSTS].paramValue)
             ls_syslog(LOG_ERR, "\
-%s: Host %s (hp=%s/%s) is unknown by configuration; all hosts used by openlava must have unique official names", fname, sockAdd2Str_(from),
+%s: Host %s (hp=%s/%s) is unknown by configuration; all hosts used by volclava must have unique official names", fname, sockAdd2Str_(from),
                       hp->h_name,
                       inet_ntoa(*((struct in_addr *)hp->h_addr_list[0])));
         return NULL;
@@ -367,7 +368,7 @@ logLIMStart(void)
 
     ev.event = EV_LIM_START;
     ev.etime = time(NULL);
-    ev.version = OPENLAVA_VERSION;
+    ev.version = VOLCLAVA_VERSION;
     ev.record = NULL;
 
     ls_writeeventrec(logFp, &ev);
@@ -382,7 +383,7 @@ logLIMDown(void)
 
     ev.event = EV_LIM_SHUTDOWN;
     ev.etime = time(NULL);
-    ev.version = OPENLAVA_VERSION;
+    ev.version = VOLCLAVA_VERSION;
     ev.record = NULL;
 
     ls_writeeventrec(logFp, &ev);
@@ -403,7 +404,7 @@ logAddHost(struct hostEntry *hPtr)
 
     ev.event = EV_ADD_HOST;
     ev.etime = time(NULL);
-    ev.version = OPENLAVA_VERSION;
+    ev.version = VOLCLAVA_VERSION;
     ev.record = &hLog;
 
     ls_writeeventrec(logFp, &ev);
@@ -424,7 +425,7 @@ logRmHost(struct hostEntry *hPtr)
 
     ev.event = EV_REMOVE_HOST;
     ev.etime = time(NULL);
-    ev.version = OPENLAVA_VERSION;
+    ev.version = VOLCLAVA_VERSION;
     ev.record = &hLog;
 
     ls_writeeventrec(logFp, &ev);

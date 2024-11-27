@@ -6,7 +6,7 @@ set -x
 # Copyright (c) 2011-2012 David Bigagli
 #
 
-major="2"
+major="1"
 minor="0"
 
 GIT_LAST_COMMIT=$(git log -1  --pretty=format:%H)
@@ -21,18 +21,18 @@ git show
 grep 4.6 /etc/redhat-release > /dev/null
 if [ "$?" == "0" ]; then
    echo "Cleaning..."
-   rm -f /usr/src/redhat/SOURCES/openlava*
-   rm -f /usr/src/redhat/RPMS/x86_64/openlava*
-   rm -f /usr/src/redhat/SPECS/openlava.spec
+   rm -f /usr/src/redhat/SOURCES/volclava*
+   rm -f /usr/src/redhat/RPMS/x86_64/volclava*
+   rm -f /usr/src/redhat/SPECS/volclava.spec
 
    echo "Archiving..."
-   git archive --format=tar --prefix="openlava-${major}.${minor}/" HEAD \
-   | gzip > /usr/src/redhat/SOURCES/openlava-${major}.${minor}.tar.gz
-   cp spec/openlava.spec /usr/src/redhat/SPECS/openlava.spec
+   git archive --format=tar --prefix="volclava-${major}.${minor}/" HEAD \
+   | gzip > /usr/src/redhat/SOURCES/volclava-${major}.${minor}.tar.gz
+   cp spec/volclava.spec /usr/src/redhat/SPECS/volclava.spec
 
   git reset --hard ${GIT_LAST_COMMIT}
   echo "RPM building..."
-  rpmbuild -ba --target x86_64 /usr/src/redhat/SPECS/openlava.spec
+  rpmbuild -ba --target x86_64 /usr/src/redhat/SPECS/volclava.spec
   if [ "$?" != 0 ]; then
     echo "Failed buidling rpm"
     exit 1
@@ -47,13 +47,13 @@ echo "Creating the ~/rpmbuild..."
 rpmdev-setuptree
 
 echo "Archving source code..."
-git archive --format=tar --prefix="openlava-${major}.${minor}/" HEAD \
-   | gzip > ~/rpmbuild/SOURCES/openlava-${major}.${minor}.tar.gz
-cp spec/openlava.spec ~/rpmbuild/SPECS/openlava.spec
+git archive --format=tar --prefix="volclava-${major}.${minor}/" HEAD \
+   | gzip > ~/rpmbuild/SOURCES/volclava-${major}.${minor}.tar.gz
+cp spec/volclava.spec ~/rpmbuild/SPECS/volclava.spec
 git reset --hard ${GIT_LAST_COMMIT}
 
 echo "RPM building..."
-rpmbuild -ba --target x86_64 ~/rpmbuild/SPECS/openlava.spec
+rpmbuild -ba --target x86_64 ~/rpmbuild/SPECS/volclava.spec
 if [ "$?" != 0 ]; then
   echo "Failed buidling rpm"
   exit 1
