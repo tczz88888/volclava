@@ -1074,7 +1074,7 @@ authCmdRequest(struct clientNode *client,
 
     if (hostOk(hp->h_name, 0) < 0) {
 	ls_syslog(LOG_ERR, "\
-%s: host %s is not a valid openlava host", __func__,
+%s: host %s is not a valid volclava host", __func__,
                   hp->h_name,
                   sockAdd2Str_(&client->from));
 	return LSBE_NOLSF_HOST;

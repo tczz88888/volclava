@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
  * Copyright (C) 2011 David Bigagli
  *
  * This program is free software; you can redistribute it and/or modify
@@ -66,7 +67,7 @@ main(int argc, char **argv, char **environ)
         switch (cc) {
             char *err;
             case 'V':
-                fprintf(stderr, "%s\n", _OPENLAVA_PROJECT_);
+                fprintf(stderr, "%s\n", _VOLCLAVA_PROJECT_);
                 return 0;
             case 'p':
                 P->parallel = 1;

@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates 
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -795,7 +796,7 @@ processClient(struct clientNode *client, int *needFree)
             break;
         default:
             errorBack(s, LSBE_PROTOCOL, &from);
-            if (reqHdr.version <= OPENLAVA_VERSION)
+            if (reqHdr.version <= VOLCLAVA_VERSION)
                 ls_syslog(LOG_ERR, "\
 %s: Unknown request type %d from host %s",
                           fname, mbdReqtype, sockAdd2Str_(&from));

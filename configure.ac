@@ -1,19 +1,19 @@
 #
-# openlava project
+# volclava project
 #
 # Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
 # Copyright (C) 2011 David Bigagli
 #
-AC_INIT(openlava, 2.0)
+AC_INIT(volclava, 1.0)
 AC_CONFIG_HEADERS(config.h)
-AC_PREFIX_DEFAULT([/opt/openlava-2.0])
+AC_PREFIX_DEFAULT([/opt/volclava-1.0])
 
 
 # Set some cluster configuration variables .
-AC_SUBST([openlavadmin], [openlava])
-AC_ARG_VAR([openlavaadmin], "")
-AC_SUBST([openlavacluster], [openlava])
-AC_ARG_VAR([openlavacluster], "")
+AC_SUBST([volclavadmin], [volclava])
+AC_ARG_VAR([volclavaadmin], "")
+AC_SUBST([volclavacluster], [volclava])
+AC_ARG_VAR([volclavacluster], "")
 
 # Cygwin support
 AC_CANONICAL_SYSTEM
@@ -51,7 +51,7 @@ fi
 
 #AC_CHECK_HEADERS(ncurses.h,[cf_cv_ncurses_header="ncurses.h"])
 # Check for tcl, we try tcl and all 8.X versions
-AC_CHECK_HEADERS([tcl.h], [], [AC_CHECK_HEADERS([tcl/tcl.h], [], AC_MSG_ERROR([cannot build openlava without tcl])]))
+AC_CHECK_HEADERS([tcl.h], [], [AC_CHECK_HEADERS([tcl/tcl.h], [], AC_MSG_ERROR([cannot build volclava without tcl])]))
 AC_CHECK_LIB([tcl], [Tcl_CreateInterp], [], [
  AC_CHECK_LIB([tcl8.6], [Tcl_CreateInterp], [], [
     AC_CHECK_LIB([tcl8.5], [Tcl_CreateInterp], [], [
@@ -60,7 +60,7 @@ AC_CHECK_LIB([tcl], [Tcl_CreateInterp], [], [
                 AC_CHECK_LIB([tcl8.2], [Tcl_CreateInterp], [], [
                     AC_CHECK_LIB([tcl8.1], [Tcl_CreateInterp], [], [
                         AC_CHECK_LIB([tcl8.0], [Tcl_CreateInterp], [], [
-                            AC_MSG_ERROR([cannot build openlava without tcl8.*])
+                            AC_MSG_ERROR([cannot build volclava without tcl8.*])
 ])])])])])])])])
 
 AC_CONFIG_FILES([
@@ -94,13 +94,13 @@ AC_CONFIG_FILES([
 	config/lsb.params        \
 	config/lsb.queues        \
 	config/lsb.users         \
-	config/lsf.cluster.openlava \
+	config/lsf.cluster.volclava \
 	config/lsf.shared        \
 	config/lsf.task          \
-	config/openlava.csh      \
-	config/openlava          \
-	config/openlava.setup    \
-	config/openlava.sh]
+	config/volclava.csh      \
+	config/volclava          \
+	config/volclava.setup    \
+	config/volclava.sh]
 )
 
 AC_OUTPUT

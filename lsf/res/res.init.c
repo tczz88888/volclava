@@ -1,4 +1,5 @@
-/* $Id: res.init.c 397 2007-11-26 19:04:00Z mblack $
+/* Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
+ * $Id: res.init.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -348,7 +349,7 @@ resParent(int s, struct passwd *pw, struct lsfAuth *auth,
 
     xdrmem_create(&xdrs, buf, 2*MSGSIZE, XDR_ENCODE);
     memset((void *)&hdr, 0, sizeof(struct LSFHeader));
-    hdr.version = OPENLAVA_VERSION;
+    hdr.version = VOLCLAVA_VERSION;
     if (!xdr_resChildInfo(&xdrs, &childInfo, &hdr)) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_resChildInfo");
         return(-1);
@@ -507,7 +508,7 @@ resChild( char *arg, char *envdir)
     childInfo.lsfAuth = &auth;
 
     xdrmem_create(&xdrs, buf, len, XDR_DECODE);
-    hdr.version = OPENLAVA_VERSION;
+    hdr.version = VOLCLAVA_VERSION;
     if (!xdr_resChildInfo(&xdrs, &childInfo, &hdr)) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "xdr_resChildInfo");
         resExit_(-1);

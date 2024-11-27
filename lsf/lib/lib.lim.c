@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
  * Copyright (C) 2011 David Bigagli
  *
  * $Id: lib.lim.c 397 2007-11-26 19:04:00Z mblack $
@@ -86,7 +87,7 @@ callLim_(enum limReqCode reqCode,
     reqHdr.opCode = reqCode;
 
     reqHdr.refCode  = getRefNum_();
-    reqHdr.version = OPENLAVA_VERSION;
+    reqHdr.version = VOLCLAVA_VERSION;
 
     xdrmem_create(&xdrs, sbuf, 8*MSGSIZE, XDR_ENCODE);
     if (!xdr_encodeMsg(&xdrs, dsend, &reqHdr, xdr_sfunc, 0, NULL)) {

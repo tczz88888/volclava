@@ -1,15 +1,16 @@
 #
+# Copyright (C) 2021 - 2024  Bytedance Ltd. and/or its affiliates 
 # Copyright (C) David Bigagli
 #
 
-# Install configuration files for openlava base and batch 
+# Install configuration files for volclava base and batch 
 # in the conf directory.
 
 # Install the shell profile scrips and the system startup 
 # script in the etc directory.
 etcdir = $(prefix)/etc
-etc_DATA = openlava openlava.sh openlava.csh \
-	lsf.conf lsf.cluster.openlava lsf.shared lsf.task \
+etc_DATA = volclava volclava.sh volclava.csh volclava.setup \
+	lsf.conf lsf.cluster.volclava lsf.shared lsf.task \
 	lsb.hosts lsb.params lsb.queues lsb.users 
 
 # Create the working directory where the working files are

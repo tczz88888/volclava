@@ -1,26 +1,26 @@
 #!/bin/sh
 
-# Start and stop openlava daemons
+# Start and stop volclava daemons
 # Run by hand or install in /etc/init.d
 # and make a symbolic link from rc3.d to it.
 #
 # The following is for the Linux chkconfig utlility
 # chkconfig: 35 99 01
-# description: openlava
+# description: volclava
 
 ### BEGIN INIT INFO
-# Provides: openlava
+# Provides: volclava
 # Required-Start: $local_fs $remote_fs $network $syslog 
 # Required-Stop: $local_fs $remote_fs $syslog $network
 # Default-Start:  3 4 5
 # Default-Stop: 0 1 6
-# Short-Description: openlava
-# Description: openlava is a distributed batch system
+# Short-Description: volclava
+# Description: volclava is a distributed batch system
 ### END INIT INFO
 
-# This is the root of openlava installation
+# This is the root of volclava installation
 # change it if installed somewhere else.
-export OPENLAVA_TOP=@prefix@
+export VOLCLAVA_TOP=@prefix@
 
 # kill the old daemons first.
 #
@@ -48,16 +48,16 @@ case "$opcode" in
         ;;
 
   'start')
-        LSF_CONF=$OPENLAVA_TOP/etc/lsf.conf
+        LSF_CONF=$VOLCLAVA_TOP/etc/lsf.conf
 
         if [ -f $LSF_CONF ]
         then
             kill_daemons
 
-            # Get the location of the openlava daemons
+            # Get the location of the volclava daemons
             . $LSF_CONF
 
-            # Export this env.variable to notify openlava daemons the loc. of
+            # Export this env.variable to notify volclava daemons the loc. of
             # lsf.conf
             export LSF_ENVDIR
             export LSF_SERVERDIR
@@ -99,7 +99,7 @@ case "$opcode" in
         exit 0
         ;;
   *)
-        echo "Script for starting up and shutting down openlava"
+        echo "Script for starting up and shutting down volclava"
         echo "Usage: $0 { start | stop | status | restart }"
         exit 0
         ;;

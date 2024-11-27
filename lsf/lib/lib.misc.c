@@ -1,4 +1,5 @@
-/* $Id: lib.misc.c 397 2007-11-26 19:04:00Z mblack $
+/* Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
+ * $Id: lib.misc.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -362,7 +363,7 @@ void
 initLSFHeader_ (struct LSFHeader *hdr)
 {
     memset(hdr, 0, sizeof(struct LSFHeader));
-    hdr->version = OPENLAVA_VERSION;
+    hdr->version = VOLCLAVA_VERSION;
 }
 
 void *

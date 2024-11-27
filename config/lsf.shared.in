@@ -1,7 +1,7 @@
 # $Id: lsf.shared,v 1.1.4.4 2006/04/28 21:36:01 mblack Exp $
 
 # ----------------------------------------------------------------------
-# T H I S   F I L E:  Is shared by all clusters in the openlava system.
+# T H I S   F I L E:  Is shared by all clusters in the volclava system.
 #
 # This file contains all definitions referenced by individual
 # lsf.cluster.<clustername> files. The definitions in this file can be
@@ -13,7 +13,7 @@
 
 Begin Cluster
 ClusterName			# Keyword
-@openlavacluster@
+@volclavacluster@
 End Cluster
 
 Begin HostType

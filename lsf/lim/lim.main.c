@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
  * Copyright (C) 2011 David Bigagli
  *
  * $Id: lim.main.c 397 2007-11-26 19:04:00Z mblack $
@@ -286,7 +287,7 @@ Reading configuration from %s/lsf.conf\n", env_dir);
 
     ls_syslog(LOG_INFO, "\
 %s: Daemon running (%d %d %d)", __func__, myClusterPtr->checkSum,
-              ntohs(myHostPtr->statInfo.portno), OPENLAVA_VERSION);
+              ntohs(myHostPtr->statInfo.portno), VOLCLAVA_VERSION);
     ls_syslog(LOG_DEBUG, "\
 %s: sampleIntvl %f exchIntvl %f hostInactivityLimit %d masterInactivityLimit %d retryLimit %d", __func__, sampleIntvl, exchIntvl,
               hostInactivityLimit, masterInactivityLimit, retryLimit);
@@ -526,7 +527,7 @@ processUDPMsg(void)
             rcvConfInfo(&xdrs, &from, &reqHdr);
             break;
         default:
-            if (reqHdr.version <= OPENLAVA_VERSION) {
+            if (reqHdr.version <= VOLCLAVA_VERSION) {
                 static int lastcode;
 
                 errorBack(&from, &reqHdr, LIME_BAD_REQ_CODE, -1);
@@ -1166,7 +1167,7 @@ getClusterConfig(void)
         return 0;
 
     ls_syslog(LOG_DEBUG, "\
-%s: openlava non shared fs configured", __func__);
+%s: volclava non shared fs configured", __func__);
 
     sprintf(buf, "%s/esync", limParams[LSF_BINDIR].paramValue);
 
