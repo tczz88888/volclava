@@ -1,4 +1,4 @@
-volclava (2.0-1.b.20241111) UNRELEASED; urgency=medium
+volclava (1.0-1.b.20241126) UNRELEASED; urgency=medium
 
   * Multiple feature support: bjobs -UF; bjobs -o/-json; bsub -pack; bsub -Ep; etc.
   * Multiple bugfix: MXJ not equal with maxCpus when set "!"; lshosts -l segmentation fault;

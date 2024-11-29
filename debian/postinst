@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 # Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
 
-chmod 755 /opt/openlava-2.0/lib/liblsf.a || true
-chmod 755 /opt/openlava-2.0/lib/liblsbatch.a || true
+chmod 755 /opt/volclava-1.0/lib/liblsf.a || true
+chmod 755 /opt/volclava-1.0/lib/liblsbatch.a || true
 
-chmod 755 /etc/profile.d/openlava.sh || true
-chmod 755 /etc/profile.d/openlava.csh || true
-chmod 755 /opt/openlava-2.0/etc/openlava.sh || true
-chmod 755 /opt/openlava-2.0/etc/openlava.csh || true
+chmod 755 /etc/profile.d/volclava.sh || true
+chmod 755 /etc/profile.d/volclava.csh || true
+chmod 755 /opt/volclava-1.0/etc/volclava.sh || true
+chmod 755 /opt/volclava-1.0/etc/volclava.csh || true
 
-source /etc/profile.d/openlava.sh || true
+source /etc/profile.d/volclava.sh || true
 
-chmod 755 /etc/init.d/openlava || true
-chmod 755 /opt/openlava-2.0/etc/openlava || true
+chmod 755 /etc/init.d/volclava || true
+chmod 755 /opt/volclava-1.0/etc/volclava || true
 
-groupadd -f openlava || true
-useradd -c "openlava Administrator" -g openlava -m -d /home/openlava openlava || true
+groupadd -f volclava || true
+useradd -c "volclava Administrator" -g volclava -m -d /home/volclava volclava || true
 
-chown -R openlava:openlava /opt/openlava-2.0/*
-chgrp -R openlava /opt/openlava-2.0/*
+chown -R volclava:volclava /opt/volclava-1.0/*
+chgrp -R volclava /opt/volclava-1.0/*
