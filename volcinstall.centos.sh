@@ -42,27 +42,32 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+if [ $TYPE != "code" -a $TYPE != "rpm" ]; then
+    usage
+    exit 1
+fi
+
+#add user
+if ! id -u "volclava" > /dev/null 2>&1; then
+    useradd "volclava"
+fi
+
+#install compile library
+if which yum > /dev/null 2>&1; then
+    if ! yum list installed tcl-devel >/dev/null 2>&1; then
+        yum install -y tcl-devel
+    fi     
+    if ! yum list installed ncurses-devel > /dev/null 2>&1; then
+        yum install -y ncurses-devel
+    fi
+    yum groupinstall -y "Development Tools"
+else
+    echo "Failed to find yum ..."
+    exit 1
+fi
+
 if [ $TYPE = "code" ]; then
     # install volclava from source code
-    #add user
-    if ! id -u "volclava" > /dev/null 2>&1; then
-        useradd "volclava"
-    fi
-
-    #install compile library
-    if which yum > /dev/null 2>&1; then
-        if ! yum list installed tcl-devel >/dev/null 2>&1; then
-            yum install -y tcl-devel    
-        fi
-        if ! yum list installed ncurses-devel > /dev/null 2>&1; then
-            yum install -y ncurses-devel
-        fi
-        yum groupinstall -y "Development Tools"
-    else
-        echo "Failed to find yum ..."
-        exit 1
-    fi
-
     #setup automake
     ./bootstrap.sh --prefix=$PREFIX
 
@@ -90,8 +95,7 @@ if [ $TYPE = "code" ]; then
     chkconfig volclava on
     chkconfig --add volclava    
     echo -e "Congratulates, the volclava is installed under ${PREFIX}.\nYou can source environment by: source ${PREFIX}/etc/volclava.sh \nGo on to configure master/compute node and enjoy journey!"
-elif [ $TYPE = "rpm" ]; then
-   
+else
     #rpm way to intall volclava 
     if which yum > /dev/null 2>&1; then
         if ! yum list installed rpm-build >/dev/null 2>&1; then
@@ -123,7 +127,4 @@ elif [ $TYPE = "rpm" ]; then
     fi
     rpm -ivh --prefix $PREFIX volclava-1.0*
     echo -e "Congratulates, the volclava is installed under ${PREFIX}/${PACKAGE_NAME}.\nYou can source environment by: source ${PREFIX}/${PACKAGE_NAME}/etc/volclava.sh \nGo on to configure master/compute node and enjoy journey!"
-else
-    usage
-    exit 1
 fi
