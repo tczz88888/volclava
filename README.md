@@ -1,13 +1,20 @@
 ## Description
+**volclava 1.0.0** is developed based on OpenLava 2.0 with following its license of GPL 2.0.
+
 OpenLava is a free and open-source workload scheduler that's fully compatible with IBM LSF. It supports diverse high-performance computing and analytical applications.
 It came from an early version of LSF through open-sourcing. Its command-line and file formats are similar to most LSF functions, so both users and administrators can easily get the hang of operating it.
-Currently, **Volclava 1.0.0** is developed based on OpenLava 2.0. It fixes obvious flaws and adds necessary features, covering the basic functional needs of the EDA business. It's recommended for use in small-scale clusters (with less than 100 nodes) where scheduling performance requirements aren't too high.
+
+**volclava** fixes obvious flaws and adds necessary features, covering the basic functional needs of the EDA business. It's recommended for use in small-scale clusters (with less than 100 nodes) where scheduling performance requirements aren't too high.
+
+Everyone is welcomed to feed back via git issue.
+
 
 ## Support OS
 - CentOS 6/CentOS 7/CentOS 8  
 - Redhat/Rocky8.1
+- Ubuntu 20.04
 
-The development and testing operating system for the Volclava project 1.0.0 is CentOS Linux release 7.9.2009 (Core), which is also one of the commonly used operating system versions in IC design.
+The development and testing operating system for the volclava project 1.0.0 is CentOS Linux release 7.9.2009 (Core), which is also one of the commonly used operating system versions in IC design.
 CentOS 6, CentOS 7, CentOS 8, as well as their corresponding Red Hat and Rocky versions should all be able to run. The main potential risk lies in that differences in system library versions may affect the operation of some components.
 
 ## Install
@@ -76,7 +83,7 @@ Perform the same operations on other computing hosts.
 [root@cmp2-test ~]# yum install psmisc
 [root@cmp2-test ~]# service volclava restart
 ```
-2. Verify the Volclava cluster
+2. Verify the volclava cluster
 ```
 [root@master-test ~]# service volclava status ##check daemons status
 lim pid: <5922>
@@ -121,7 +128,7 @@ JOBID   USER    STAT  QUEUE      FROM_HOST   EXEC_HOST   JOB_NAME   SUBMIT_TIME
 Please refer to [Installation guide](docs/volclava%20%E5%AE%89%E8%A3%85%E5%8F%8A%E9%85%8D%E7%BD%AE%E6%96%87%E6%A1%A3.pdf) for more details on installation methods and configuration
 
 ## Documentation
-The following article offers plentiful user and administrator operation guides, which can assist you in understanding and using the functions of Volclava better.
+The following article offers plentiful user and administrator operation guides, which can assist you in understanding and using the functions of volclava better.
 - [User Guide](docs/volclava%20%E5%AE%89%E8%A3%85%E5%8F%8A%E9%85%8D%E7%BD%AE%E6%96%87%E6%A1%A3.pdf)
 - [Administrator Guide](docs/volclava%20%E7%AE%A1%E7%90%86%E5%91%98%E6%89%8B%E5%86%8C.pdf)
 
