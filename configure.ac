@@ -46,7 +46,7 @@ AC_PROG_MAKE_SET
 
 # Force warnings on for gcc
 if test "x$ac_compiler_gnu" = xyes; then
-    CFLAGS="$CFLAGS -Wall -fPIC"
+    CFLAGS="$CFLAGS -Wall -fPIC -Wno-error=format-security"
 fi
 
 #AC_CHECK_HEADERS(ncurses.h,[cf_cv_ncurses_header="ncurses.h"])

@@ -1,0 +1,12 @@
+volclava (1.0-1.b.20241126) UNRELEASED; urgency=medium
+
+  * Multiple feature support: bjobs -UF; bjobs -o/-json; bsub -pack; bsub -Ep; etc.
+  * Multiple bugfix: MXJ not equal with maxCpus when set "!"; lshosts -l segmentation fault;
+    sbatchd block by greater than 1000 jobs; prefix not work in rpm install to costomize directory;
+    fix job slot limit reached while host is free.
+  * Define new project name as volclava in related files.
+  * Adapt to Ubuntu 20.04 and Rocky 8.10.
+    support ubuntu/debian with tcl 6.8 and glibc 2.31-0;
+    bugfix: fix bjobs show nothing with no jobs;
+    bugfix: remove ls_syslog in sbd child_handler due to dead lock;
+ -- Mingze Li <limingze.jiayou@bytedance.com>  Mon, 11 Nov 2024 10:57:18 +0800

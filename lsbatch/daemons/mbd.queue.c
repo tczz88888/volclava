@@ -1,4 +1,7 @@
-/* $Id: mbd.queue.c 397 2007-11-26 19:04:00Z mblack $
+/*
+ * Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
+ *
+ * $Id: mbd.queue.c 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
  *
  * This program is free software; you can redistribute it and/or modify
@@ -737,14 +740,14 @@ createQueueHostSet(struct qData *qp)
 
     allHosts = qp->numAskedPtr;
     if (allHosts == 0)
-        allHosts = numofhosts;
+        allHosts = numofhosts();
 
     qp->hostInQueue = setCreate(allHosts,
                                 gethIndexByhData,
                                 gethDataByhIndex,
                                 (char *)__func__);
 
-    if (allHosts == numofhosts) {
+    if (allHosts == numofhosts()) {
         for (hPtr = (struct hData *)hostList->back;
              hPtr != (void *)hostList;
              hPtr = hPtr->back)

@@ -132,12 +132,7 @@ child_handler (int sig)
                 mbdExitCnt = 150;             
 	    mbdExitVal = WIFSIGNALED(status);
 	    if (mbdExitVal) {
-	        ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5600,
-		    "mbatchd died with signal <%d> termination"), /* catgets 5600 */
-		    sig);
                 if (WCOREDUMP(status))
-		    ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5601,
-		        "mbatchd core dumped")); /* catgets 5601 */
                 mbdExitVal = sig;
                 if (mbdExitVal == lastMbdExitVal)
                     mbdExitCnt++;
@@ -156,13 +151,8 @@ child_handler (int sig)
                     lastMbdExitVal = mbdExitVal;
                 }
 		if (mbdExitVal == MASTER_RECONFIG) {
-		    ls_syslog(LOG_NOTICE, _i18n_msg_get(ls_catd , NL_SETN, 5602,
-		        "mbatchd resigned for reconfiguration")); /* catgets 5602 */
 		    start_master();
 		} else
-		    ls_syslog(LOG_NOTICE, _i18n_msg_get(ls_catd , NL_SETN, 5603,
-			"mbatchd exited with value <%d>"),  /* catgets 5603 */
-			mbdExitVal); 		
 	        continue;
 	    }
         }
@@ -176,13 +166,6 @@ child_handler (int sig)
 	    if (jobCard->exitPid == pid) {
 		jobCard->w_status = LS_STATUS(status);
 		jobCard->exitPid = -1;
-		if (logclass & LC_EXEC) {
-		    ls_syslog(LOG_DEBUG, I18N(5604,
-			      "child_handler: Job <%s> exitPid <%d> status <%d> exitcode <%d>"),/*catgets 5604*/
-			      lsb_jobid2str(jobCard->jobSpecs.jobId),
-			      pid, jobCard->w_status,
-			      WEXITSTATUS(status));
-		}
 	    }
 	    
 	    if (jobCard->jobSpecs.jobPid == pid) {
@@ -210,12 +193,6 @@ child_handler (int sig)
 //		    millisleep_(sbd_finish_sleep);
 //		}
 
-		if (logclass & LC_EXEC) {
-		    ls_syslog(LOG_DEBUG, I18N(5605,
-			      "child_handler: Job <%s> Pid <%d> status <%d> exitcode <%d>"), /*catgets 5605*/
-			      lsb_jobid2str(jobCard->jobSpecs.jobId), pid, 
-			      jobCard->w_status, WEXITSTATUS(status));
-		}
 		need_checkfinish = TRUE;
 
 		break;  

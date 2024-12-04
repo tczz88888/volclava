@@ -442,6 +442,7 @@ rm -rf ${_volclavatop}
 - sbatchd block by greater than 1000 jobs; prefix not work in rpm install to costomize directory;
 - fix job slot limit reached while host is free.
 - Define new project name as volclava in related files.
+- Adapt to Ubuntu 20.04 and Rocky 8.10.
 * Mon Jan 23 2012 Releasing openlava 2.0
 * Sun Oct 30 2011 modified the spec file so that autoconf creates
 - openlava configuration files and use the outptu variables to make

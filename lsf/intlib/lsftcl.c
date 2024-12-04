@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
  * Copyright (C) 2011 David Bigagli
  * Copyright (C) 2007 Platform Computing Inc
  *
@@ -208,7 +209,7 @@ stringValue(ClientData clientData,
     struct hostent *hp;
 
     if (argc != 3) {
-        interp->result = "wrong # args";
+        Tcl_SetResult(interp, "wrong # args", NULL);
         return TCL_ERROR;
     }
 
@@ -282,7 +283,7 @@ stringValue: arg0 %s arg1 %s arg2 %s indx %d hostname %s",
             value = getResValue (*indx - LAST_STRING);
             if (value == NULL || value[0] == '-') {
                 if (hPtr->flag == TCL_CHECK_SYNTAX) {
-                    interp->result = "1";
+                    Tcl_SetResult(interp, "1", NULL);
                     return(TCL_OK);
                 } else {
                     return (TCL_ERROR);
@@ -300,40 +301,40 @@ stringValue: sp = %s, sp2 = %s", sp, sp2);
     }
 
     if (strcmp(sp2, WILDCARD_STR) == 0 ) {
-        interp->result = "1";
+        Tcl_SetResult(interp, "1", NULL);
         return TCL_OK;
     }
 
     if (strcmp(argv[1],"eq") == 0) {
         if (strcmp(sp2, sp) == 0)
-            interp->result = "1";
+            Tcl_SetResult(interp, "1", NULL);
         else
-            interp->result = "0";
+            Tcl_SetResult(interp, "0", NULL);
     } else if (strcmp(argv[1],"ne") == 0) {
         if (strcmp(sp2, sp) != 0)
-            interp->result = "1";
+            Tcl_SetResult(interp, "1", NULL);
         else
-            interp->result = "0";
+            Tcl_SetResult(interp, "0", NULL);
     } else if (strcmp(argv[1],"ge") == 0) {
         if (strcmp(sp2, sp) <= 0)
-            interp->result = "1";
+            Tcl_SetResult(interp, "1", NULL);
         else
-            interp->result = "0";
+            Tcl_SetResult(interp, "0", NULL);
     } else if (strcmp(argv[1],"le") == 0) {
         if (strcmp(sp2,sp) >= 0)
-            interp->result = "1";
+            Tcl_SetResult(interp, "1", NULL);
         else
-            interp->result = "0";
+            Tcl_SetResult(interp, "0", NULL);
     } else if (strcmp(argv[1],"gt") == 0) {
         if (strcmp(sp2, sp) < 0)
-            interp->result = "1";
+            Tcl_SetResult(interp, "1", NULL);
         else
-            interp->result = "0";
+            Tcl_SetResult(interp, "0", NULL);
     } else if (strcmp(argv[1],"lt") == 0) {
         if (strcmp(sp2, sp) > 0)
-            interp->result = "1";
+            Tcl_SetResult(interp, "1", NULL);
         else
-            interp->result = "0";
+            Tcl_SetResult(interp, "0", NULL);
     } else {
         return TCL_ERROR;
     }
@@ -354,7 +355,7 @@ definedCmd(ClientData clientData,
     char   *value;
 
     if (argc != 2) {
-        interp->result = "wrong # args";
+        Tcl_SetResult(interp, "wrong # args", NULL);
         return TCL_ERROR;
     }
 
@@ -376,21 +377,21 @@ definedCmd: argv0 %s argv1 %s indx %d",
         return(TCL_ERROR);
 
     if (hPtr->resBitMaps == NULL) {
-        interp->result = "0";
+        Tcl_SetResult(interp, "0", NULL);
         return (TCL_OK);
     }
     TEST_BIT(resNo, hPtr->resBitMaps, isSet);
     if (isSet == 1)
-        interp->result = "1";
+        Tcl_SetResult(interp, "1", NULL);
     else {
         value = getResValue (resNo);
         if (value == NULL) {
             if (hPtr->flag == TCL_CHECK_SYNTAX)
-                interp->result = "1";
+                Tcl_SetResult(interp, "1", NULL);
             else
-                interp->result = "0";
+                Tcl_SetResult(interp, "0", NULL);
         } else
-            interp->result = "1";
+            Tcl_SetResult(interp, "1", NULL);
     }
 
     return (TCL_OK);
@@ -603,7 +604,7 @@ evalResReq(char *resReq,
 evalResReq: resReq=%s, host = %s", resReq, hPtr->hostName);
 
     code = Tcl_Eval(globinterp, resReq);
-    if (code != TCL_OK || *globinterp->result == 0) {
+    if (code != TCL_OK) {
         return -1;
     }
 
@@ -629,9 +630,6 @@ evalResReq: resReq=%s, host = %s", resReq, hPtr->hostName);
     }
 
     if (runTimeDataQueried && LS_ISUNAVAIL(hPtr->status))
-        return 0;
-
-    if (strcmp(globinterp->result, "0") == 0)
         return 0;
 
     return 1;

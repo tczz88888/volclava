@@ -34,7 +34,7 @@ char
 *jobInfoErr (LS_LONG_INT jobId, char *jobName, char *user, char *queue,
             char *host, int options)
 {
-    char errMsg[MAXLINELEN/2];
+    static char errMsg[MAXLINELEN/2];
     char hostOrQueue[MAXLINELEN/2];
 
     if (user && lsberrno == LSBE_BAD_USER) {

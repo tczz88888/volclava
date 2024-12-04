@@ -1,0 +1,15 @@
+[Unit]
+Description=volclava
+After=remote-fs.target network.target nfs.service autofs.service gpfs.service nscd.service
+
+[Service]
+Type=forking
+ExecStart=/etc/init.d/volclava start
+ExecStop=/etc/init.d/volclava stop
+KillMode=none
+LimitMEMLOCK=infinity
+Delegate=yes
+
+[Install]
+WantedBy=multi-user.target
+
