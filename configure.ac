@@ -49,6 +49,11 @@ if test "x$ac_compiler_gnu" = xyes; then
     CFLAGS="$CFLAGS -Wall -fPIC -Wno-error=format-security"
 fi
 
+CFLAGS="$CFLAGS -I/usr/include/tirpc"
+
+AC_CHECK_HEADERS([rpc/xdr.h], [], [AC_CHECK_HEADERS([tirpc/rpc/xdr.h], [CFLAGS="-I/usr/include/tirpc"], AC_MSG_ERROR([cannot build volclava without xdr])]))
+AC_SEARCH_LIBS([xdr_int], [rpc tirpc], [], [AC_MSG_ERROR([cannot build volclava without XDR])])
+
 #AC_CHECK_HEADERS(ncurses.h,[cf_cv_ncurses_header="ncurses.h"])
 # Check for tcl, we try tcl and all 8.X versions
 AC_CHECK_HEADERS([tcl.h], [], [AC_CHECK_HEADERS([tcl/tcl.h], [], AC_MSG_ERROR([cannot build volclava without tcl])]))
