@@ -101,7 +101,7 @@ install -d $RPM_BUILD_ROOT%{_volclavatop}/work/logdir
 
 # in volclava root
 install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/COPYING  $RPM_BUILD_ROOT%{_volclavatop}
-install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/README  $RPM_BUILD_ROOT%{_volclavatop}
+install -m 644 $RPM_BUILD_DIR/%{name}-%{version}/README.md  $RPM_BUILD_ROOT%{_volclavatop}
 
 # bin
 install -m 755 $RPM_BUILD_DIR/%{name}-%{version}/lsbatch/cmd/badmin  $RPM_BUILD_ROOT%{_volclavatop}/bin
@@ -423,7 +423,7 @@ rm -rf ${_volclavatop}
 %config(noreplace) %{_volclavatop}/etc/lsf.conf
 %config(noreplace) %{_volclavatop}/etc/lsf.cluster.%{_clustername}
 %config(noreplace) %{_volclavatop}/etc/lsf.task
-%config(noreplace) %{_volclavatop}/README
+%config(noreplace) %{_volclavatop}/README.md
 %config(noreplace) %{_volclavatop}/COPYING
 %attr(0755,volclava,volclava) %{_volclavatop}/bin
 %attr(0755,volclava,volclava) %{_volclavatop}/etc
