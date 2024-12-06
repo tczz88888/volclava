@@ -3,30 +3,30 @@
 # Description:
 # You can use this script in two ways to install volclava in shared file system:
 # Way1: Install volclava in cluster by three steps:
-#       1) Run 'volcinstall.centos.sh --setup=pre' on each host in cluster.
+#       1) Run 'volcinstall.sh --setup=pre' on each host in cluster.
 #          This will help to setup environments and install some necessary packages
 #          needed by volclava.
-#       2) Run 'volcinstall.centos.sh --setup=install --type=code --prefix=/share-nfs/software/volclava'
+#       2) Run 'volcinstall.sh --setup=install --type=code --prefix=/share-nfs/software/volclava'
 #          on master host.
 #          This will install volclava package on the shared file system
-#       3) Run 'volcinstall.centos.sh --setup=post --env=/share-nfs/software/volclava'
+#       3) Run 'volcinstall.sh --setup=post --env=/share-nfs/software/volclava'
 #          on each host in cluster.
 #          This will help enable the automatic startup of services and the automatic
 #          addition of environment variables for each host in cluster.
 # Way2: Install volclava in cluster by two steps:
-#       1) Install master host: 'volcinstall.centos.sh --type=code --prefix=/share-nfs/software/volclava'.
+#       1) Install master host: 'volcinstall.sh --type=code --prefix=/share-nfs/software/volclava'.
 #          This will help finish all steps(pre/install/post) for master host.
-#       2) Log on each compute node, run "volcinstall.centos.sh --type=server --prefix=/share-nfs/software/volclava"
+#       2) Log on each compute node, run "volcinstall.sh --type=server --prefix=/share-nfs/software/volclava"
 #          This will help finish installation steps on server host.
 #
 #
 
 function usage() {
-    echo "Usage: volcinstall.centos.sh [--help]"
-    echo "                             [--setup=pre]"
-    echo "                             [--setup=install [--type=code|rpm] [--prefix=/opt/volclava]]"
-    echo "                             [--setup=post [--env=/volclava_top]]"
-    echo "                             [--type=code|rpm|server] [--prefix=/opt/volclava]"
+    echo "Usage: volcinstall.sh [--help]"
+    echo "                      [--setup=pre]"
+    echo "                      [--setup=install [--type=code|rpm] [--prefix=/opt/volclava]]"
+    echo "                      [--setup=post [--env=/volclava_top]]"
+    echo "                      [--type=code|rpm|server] [--prefix=/opt/volclava]"
 }
 
 
