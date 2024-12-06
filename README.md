@@ -11,7 +11,7 @@ Everyone is welcomed to feed back via git issue.
 
 ## Support OS
 - CentOS 6/CentOS 7/CentOS 8  
-- Redhat/Rocky8.1
+- Redhat/Rocky 8
 - Ubuntu 20.04
 
 The development and testing operating system for the volclava project 1.0.0 is CentOS Linux release 7.9.2009 (Core), which is also one of the commonly used operating system versions in IC design.
