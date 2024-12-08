@@ -138,8 +138,8 @@ function post_setup() {
     cp -f $PREFIX/etc/volclava.sh /etc/profile.d/
 
     # configure the lava service to start at boot
-    chkconfig volclava on
     chkconfig --add volclava
+    chkconfig volclava on
 }
 
 function install() {
