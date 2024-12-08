@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
 # Description:
 # You can use this script in two ways to install volclava in shared file system:
 # Way1: Install volclava in cluster by three steps:
@@ -19,14 +20,16 @@
 #       2) Log on each compute node, run "volcinstall.sh --type=server --prefix=/share-nfs/software/volclava"
 #          This will help finish installation steps on server host.
 #
-#
+# Note:
+# --hosts=/path/file: It is a file which lists hosts' name in one column.
+# --startup: default is N. If set as Y, we will startup cluster after installation
 
 function usage() {
     echo "Usage: volcinstall.sh [--help]"
-    echo "                      [--setup=pre]"
-    echo "                      [--setup=install [--type=code|rpm] [--prefix=/opt/volclava]]"
-    echo "                      [--setup=post [--env=/volclava_top]]"
-    echo "                      [--type=code|rpm|server] [--prefix=/opt/volclava]"
+    echo "                      [--setup=pre [--uid=number]]"
+    echo "                      [--setup=install [--type=code|rpm] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file]]"
+    echo "                      [--setup=post [--env=/volclava_top] --startup=Y|y|N|n]"
+    echo "                      [--type=code|rpm|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file]"
 }
 
 
@@ -36,6 +39,9 @@ PACKAGE_NAME="volclava-1.0"
 PREFIX="/opt/${PACKAGE_NAME}"
 setPrefix=0
 PHASE="all"
+USRID=""
+HOSTS=""
+STARTUP="N"
 
 while [ $# -gt 0 ]; do
     case $1 in
@@ -78,8 +84,33 @@ while [ $# -gt 0 ]; do
         --env=*)
             PREFIX=$(echo $1 | awk -F "=" '{print $2}')
             if [ -z $PREFIX ]; then
-               usage
-               exit 1
+                usage
+                exit 1
+            fi
+            ;;
+        --uid=*)
+            USRID=$(echo $1 | awk -F "=" '{print $2}')
+            if [ -z $USRID ]; then
+                usage
+                exit 1
+            fi
+            ;;
+        --hosts=*)
+            HOSTS=$(echo $1 | awk -F "=" '{print $2}')
+            if [ -z "$HOSTS" ]; then
+                usage
+                exit 1
+            fi
+            ;;
+        --startup=*)
+            STARTUP=$(echo $1 | awk -F "=" '{print $2}')
+            if [ -z "$STARTUP" ]; then
+                usage
+                exit 1
+            fi
+            if [[ "$STARTUP" != "Y" ]] && [[ "$STARTUP" != "y" ]] && [[ "$STARTUP" != "N" ]] && [[ "$STARTUP" != "n" ]]; then
+                usage
+                exit 1
             fi
             ;;
         --help)
@@ -107,7 +138,11 @@ fi
 function pre_setup() {
     #add user
     if ! id -u "volclava" > /dev/null 2>&1; then
-        useradd "volclava"
+        if [ -z "$USRID"  ]; then
+            useradd "volclava"
+        else
+            useradd -u $USRID  "volclava" 
+        fi
     fi
 
     #install compile library
@@ -140,7 +175,63 @@ function post_setup() {
     # configure the lava service to start at boot
     chkconfig --add volclava
     chkconfig volclava on
+
+    # startup cluster if need
+    if [[ $STARTUP == "Y" ]] || [[ $STARTUP == "y" ]]; then
+        service volclava start
+    fi
+
+    source ${PREFIX}/etc/volclava.sh
+
+    if [ $? == 0 ]; then
+        echo -e "Congratulates, installation is done and enjoy the journey!"
+    fi
 }
+
+function addHosts2Cluster() {
+
+    hostList=$1
+    clusterFile=$2
+
+    if [[ -z $hostList ]] || [[ -z $clusterFile ]]; then
+        return 1
+    fi
+
+    if [ ! -e "$clusterFile" ]; then
+        return 1
+    fi
+
+    if [[ $hostList == *"/"* ]]; then
+        #from file
+        if [ ! -f $hostList ];then
+            echo "$hostList not exist, failed to add hosts to ${clusterFile}"
+            return 1
+        fi
+        hostnames=($(cat $hostList))
+    else
+        hostnames=($(echo $hostList))
+    fi
+
+    found_place=false
+    line_number=0
+    while read line; do
+        ((line_number++))
+        trimmed_line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if [[ $trimmed_line == HOSTNAME* ]]; then
+            found_place=true
+        fi
+
+        if [ "$found_place" == true ]; then
+            for hostname in "${hostnames[@]}"; do
+                sed -i "${line_number}a\\${hostname}           IntelI5      linux   1      3.5    (cs)" $clusterFile
+                ((line_number++)) 
+            done
+            break
+        fi
+    done < $clusterFile
+    return 0
+}
+
 
 function install() {
 
@@ -165,8 +256,10 @@ function install() {
 
         chown volclava:volclava -R $PREFIX
         chmod 755 -R $PREFIX
-        if [ $PHASE == "install" ]; then
-            echo -e "The volclava is installed under ${PREFIX}\nYou can use the following command to enable services to startup and add environment variables automatically on master and computing nodes: \n$0 --setup=post --env=${PREFIX}"
+
+        #append hosts into lsf.cluster file
+        if [ ! -z "$HOSTS" ]; then
+            addHosts2Cluster "$HOSTS" ${PREFIX}/etc/lsf.cluster.volclava
         fi
     else
         #rpm way to intall volclava 
@@ -200,16 +293,23 @@ function install() {
         fi
         rpm -ivh --prefix $PREFIX volclava-1.0*
 
-        if [ $PHASE == "install" ]; then
-            echo -e "The volclava is installed under ${PREFIX}/${PACKAGE_NAME}\nYou can use the following command to enable services to startup and add environment variables automatically other computing nodes:\n$0 --setup=post --env=${PREFIX}/${PACKAGE_NAME}"
+        #append hosts into lsf.cluster file
+        if [ ! -z "$HOSTS" ]; then
+             addHosts2Cluster  "$HOSTS" ${PREFIX}/${PACKAGE_NAME}/etc/lsf.cluster.volclava
         fi
     fi
 }
 
 if [ $PHASE == "pre" ]; then
     pre_setup
+    echo "Preparation is done. You can use \"volcinstall.sh --setup=install ...\" to install the package"
 elif [ $PHASE == "install" ]; then
     install
+    if [ "$TYPE" == "code" ]; then
+        echo -e "The volclava is installed under ${PREFIX}\nYou can use the following command to enable services to startup and add environment variables automatically on master and computing nodes: \n$0 --setup=post --env=${PREFIX}"
+    else
+        echo -e "The volclava is installed under ${PREFIX}/${PACKAGE_NAME}\nYou can use the following command to enable services to startup and add environment variables automatically other computing nodes:\n$0 --setup=post --env=${PREFIX}/${PACKAGE_NAME}"
+    fi
 elif [ $PHASE == "post" ]; then
     post_setup
 elif [ $PHASE == "pre-post" ]; then
@@ -219,13 +319,6 @@ elif [ $PHASE == "all" ]; then
     pre_setup
     install
     post_setup
-    if [ $? -eq 0 ]; then
-	if [ $TYPE = "code" ]; then
-            echo -e "Congratulates, the volclava is installed under ${PREFIX}.\nYou can source environment by: source ${PREFIX}/etc/volclava.sh \nGo on to configure master/compute node and enjoy journey!"
-	else
-	    echo -e "Congratulates, the volclava is installed under ${PREFIX}/${PACKAGE_NAME}.\nYou can source environment by: source ${PREFIX}/${PACKAGE_NAME}/etc/volclava.sh \nGo on to configure master/compute node and enjoy journey!"
-	fi
-    fi
 else
     echo "Failed to install volclava ..."
     exit 1
