@@ -18,7 +18,7 @@ The development and testing operating system for the volclava project 1.0.0 is C
 CentOS 6, CentOS 7, CentOS 8, as well as their corresponding Red Hat and Rocky versions should all be able to run. The main potential risk lies in that differences in system library versions may affect the operation of some components.
 
 ## Install
-The following uses the example of setting up a cluster that has three nodes. Please confirm that all hosts in the volclava cluster can access the top-level installation directory of volclava using the same path name. For the convenience of management, it is recommended to move the software to the shared storage path
+The following uses the example of setting up a cluster that has three nodes(master-test,cmp1-test,cmp2-test). Please confirm that all hosts in the volclava cluster can access the top-level installation directory of volclava using the same path name. For the convenience of management, it is recommended to move the software to the shared storage path
 
 1. Download the code onto the master node
 ```
@@ -30,21 +30,17 @@ The following uses the example of setting up a cluster that has three nodes. Ple
 ```
 3. Run install script
 ```
-[root@master-test volclava]# ./volcinstall.centos.sh --type=code --profix=/software/volclava-1.0
+[root@master-test volclava]# ./volcinstall.sh --type=code --profix=/software/volclava-1.0 --hosts="master-test cmp1-test cmp2-test"
 ....
 make[1]: Leaving directory `/install_pkg/volclava'
 make: warning:  Clock skew detected.  Your build may be incomplete.
-Congratulates, the volclava is installed under /software/volclava-1.0
-You can source environment by: source /software/volclava-1.0/etc/volclava.sh 
-Go on to configure master/compute node and enjoy journey!
+Congratulates, installation is done and enjoy the journey!
 
 ```
 4. Log on compute nodes and install
 ```
-[root@cmp1-test ~]# source /software/volclava-1.0/etc/volclava.sh
-[root@cmp1-test ~]# sh /software/volclava-1.0/etc/volclava.setup
-[root@cmp2-test ~]# source /software/volclava-1.0/etc/volclava.sh
-[root@cmp2-test ~]# sh /software/volclava-1.0/etc/volclava.setup
+[root@cmp1-test ~]# sh /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-1.0 
+[root@cmp2-test ~]# sh /install_pkg/volclava/volcinstall.sh --type=server --env=/software/volclava-1.0
 ```
 
 5. The directory of installed volclava
@@ -52,13 +48,7 @@ Go on to configure master/compute node and enjoy journey!
 ![volc-directory](images/directory.png)
 
 ## Configure
-1. Turn off the firewall on the hosts in cluster
-```
-[root@master-test ~]# systemctl stop firewalld
-[root@master-test ~]# systemctl disable firewalld
-Perform the same operations on other computing hosts.
-```
-2. If only the /etc/hosts file is used as the source of DNS resolution, it is necessary to add the mapping relationship between the IP addresses and hostnames of the machines within the cluster to the /etc/hosts file on each host.
+1. If only the /etc/hosts file is used as the source of DNS resolution, it is necessary to add the mapping relationship between the IP addresses and hostnames of the machines within the cluster to the /etc/hosts file on each host.
 ```
 [root@master-test ~]# cat /etc/hosts
 127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
@@ -67,7 +57,7 @@ Perform the same operations on other computing hosts.
 192.168.1.2 cmp1-test
 192.168.1.3 cmp2-test
 ```
-3. Edit the lsf.cluster.volclava file, add the hosts, and then save and exit.
+2. Edit the lsf.cluster.volclava file to configure hosts attributes if need, and then save and exit.
 ```
 [root@master-test-test etc]# vim /software/volclava-1.0/etc/lsf.cluster.volclava
 ```
