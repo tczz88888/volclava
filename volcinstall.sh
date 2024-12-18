@@ -21,15 +21,18 @@
 #          This will help finish installation steps on server host.
 #
 # Note:
-# --hosts=/path/file: It is a file which lists hosts' name in one column.
-# --startup: default is N. If set as Y, we will startup cluster after installation
+# --hosts=/path/file: It is a file which lists hosts' name in one column. Default is not to add hosts into
+#          lsf.cluster.volclava. If defined, installer will append hosts into lsf.cluster.volclava.
+# --startup: Default is N. When set as Y, you also need define "--hosts", then we will startup cluster after
+#          installation. Without "--hosts", volclava fails to startup cluster because of no hosts in cluster.
+# --uid: specify uniform uid for user "volclava". Default is undefined.
 
 function usage() {
     echo "Usage: volcinstall.sh [--help]"
     echo "                      [--setup=pre [--uid=number]]"
     echo "                      [--setup=install [--type=code|rpm] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file]]"
-    echo "                      [--setup=post [--env=/volclava_top] --startup=Y|y|N|n]"
-    echo "                      [--type=code|rpm|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file]"
+    echo "                      [--setup=post [--env=/volclava_top] [--startup=Y|y|N|n]]"
+    echo "                      [--type=code|rpm|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n]"
 }
 
 
@@ -47,24 +50,24 @@ while [ $# -gt 0 ]; do
     case $1 in
         --type=*)
             TYPE=$(echo $1 | awk -F "=" '{print $2}')
-            if [ -z $TYPE ]; then
+            if [ -z "$TYPE" ]; then
                 usage
                 exit 1
             fi
-            if [ $TYPE == "rpm" -a $setPrefix -eq 0 ]; then
+            if [ "$TYPE" == "rpm" -a $setPrefix -eq 0 ]; then
                 PREFIX="/opt"
             fi
-            if [ $TYPE == "server" -a $PHASE != "all" ]; then
+            if [ "$TYPE" == "server" -a $PHASE != "all" ]; then
                 usage
                 exit 1
             fi
-            if [ $TYPE == "server" ]; then
+            if [ "$TYPE" == "server" ]; then
                 PHASE="pre-post"
             fi
             ;;
         --prefix=*)
             PREFIX=$(echo $1 | awk -F "=" '{print $2}')
-            if [ -z $PREFIX ]; then
+            if [ -z "$PREFIX" ]; then
                 usage
                 exit 1
             fi
@@ -72,25 +75,25 @@ while [ $# -gt 0 ]; do
             ;;
         --setup=*)
             PHASE=$(echo $1 | awk -F "=" '{print $2}')
-            if [ -z $PHASE ]; then
+            if [ -z "$PHASE" ]; then
                 usage
                 exit 1
             fi
-	    if [ $PHASE != "pre" -a $PHASE != "post" -a $PHASE != "install" ]; then
+	    if [ "$PHASE" != "pre" -a "$PHASE" != "post" -a "$PHASE" != "install" ]; then
 		usage
 	        exit 1
 	    fi	
 	    ;;
         --env=*)
             PREFIX=$(echo $1 | awk -F "=" '{print $2}')
-            if [ -z $PREFIX ]; then
+            if [ -z "$PREFIX" ]; then
                 usage
                 exit 1
             fi
             ;;
         --uid=*)
             USRID=$(echo $1 | awk -F "=" '{print $2}')
-            if [ -z $USRID ]; then
+            if [ -z "$USRID" ]; then
                 usage
                 exit 1
             fi
@@ -125,14 +128,25 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ $TYPE != "code" -a $TYPE != "rpm" -a $TYPE != "server" ]; then
+if [ "$TYPE" != "code" -a "$TYPE" != "rpm" -a "$TYPE" != "server" ]; then
     usage
     exit 1
 fi
 
-if [ $TYPE = "server" -a  $PHASE != "pre-post" ] || [ $TYPE != "server" -a $PHASE = "pre-post" ]; then
+if [ "$TYPE" = "server" -a  "$PHASE" != "pre-post" ] || [ "$TYPE" != "server" -a "$PHASE" = "pre-post" ]; then
     usage
     exit 1
+fi
+
+osType=$(sed -n '/^NAME=/ {s/^NAME="//;s/"$//;p}' /etc/os-release)
+if [ -z "$osType" ]; then
+    echo "Failed to find OS type, please check supported OS from README.md"
+    exit 1
+fi
+
+if [ "$osType" = "Ubuntu" ] && [ "$TYPE" = "rpm" ]; then
+   echo "Ubuntu does not support rpm installation, please install package from source code"
+   exit 1
 fi
 
 function pre_setup() {
@@ -146,24 +160,27 @@ function pre_setup() {
     fi
 
     #install compile library
-    osType=$(cat /etc/redhat-release | awk 'NR==1{print $1}')
-
-    if [ $osType = "Rocky" ]; then
+    if [ "$osType" = "Rocky Linux" ]; then
         yum install -y ncurses-devel tcl tcl-devel libtirpc libtirpc-devel libnsl2-devel    
         yum groupinstall -y "Development Tools"
-    else
+    elif [ "$osType" = "Ubuntu" ]; then
+        apt update
+        apt install -y build-essential automake tcl-dev libncurses-dev
+    else #CentOS
         yum install -y tcl-devel ncurses-devel
         yum groupinstall -y "Development Tools"
     fi
 
     #close firewall
-    systemctl stop firewalld
-    systemctl disable firewalld
+    if [ "$osType" != "Ubuntu" ]; then 
+        systemctl stop firewalld
+        systemctl disable firewalld
+    fi
 }
 
 function post_setup() {
     #rpm way doesn't need post setup, rpm already setup service and shell environment
-    if [ $TYPE = "rpm" -a $PHASE = "all" ]; then
+    if [ "$TYPE" = "rpm" -a "$PHASE" = "all" ]; then
         return
     fi
 
@@ -173,11 +190,15 @@ function post_setup() {
     cp -f $PREFIX/etc/volclava.sh /etc/profile.d/
 
     # configure the lava service to start at boot
-    chkconfig --add volclava
-    chkconfig volclava on
+    if [ "$osType" == "Ubuntu" ]; then
+       /lib/systemd/systemd-sysv-install enable volclava
+    else
+       chkconfig --add volclava
+       chkconfig volclava on
+    fi
 
     # startup cluster if need
-    if [[ $STARTUP == "Y" ]] || [[ $STARTUP == "y" ]]; then
+    if [[ "$STARTUP" == "Y" ]] || [[ "$STARTUP" == "y" ]]; then
         service volclava start
     fi
 
@@ -193,7 +214,7 @@ function addHosts2Cluster() {
     hostList=$1
     clusterFile=$2
 
-    if [[ -z $hostList ]] || [[ -z $clusterFile ]]; then
+    if [[ -z "$hostList" ]] || [[ -z "$clusterFile" ]]; then
         return 1
     fi
 
@@ -201,9 +222,9 @@ function addHosts2Cluster() {
         return 1
     fi
 
-    if [[ $hostList == *"/"* ]]; then
+    if [[ "$hostList" == *"/"* ]]; then
         #from file
-        if [ ! -f $hostList ];then
+        if [ ! -f "$hostList" ];then
             echo "$hostList not exist, failed to add hosts to ${clusterFile}"
             return 1
         fi
@@ -217,7 +238,7 @@ function addHosts2Cluster() {
     while read line; do
         ((line_number++))
         trimmed_line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-        if [[ $trimmed_line == HOSTNAME* ]]; then
+        if [[ "$trimmed_line" == HOSTNAME* ]]; then
             found_place=true
         fi
 
@@ -235,7 +256,7 @@ function addHosts2Cluster() {
 
 function install() {
 
-    if [ $TYPE = "code" ]; then
+    if [ "$TYPE" = "code" ]; then
         # install volclava from source code
         #setup automake
         ./bootstrap.sh --prefix=$PREFIX
@@ -300,22 +321,22 @@ function install() {
     fi
 }
 
-if [ $PHASE == "pre" ]; then
+if [ "$PHASE" == "pre" ]; then
     pre_setup
     echo "Preparation is done. You can use \"volcinstall.sh --setup=install ...\" to install the package"
-elif [ $PHASE == "install" ]; then
+elif [ "$PHASE" == "install" ]; then
     install
     if [ "$TYPE" == "code" ]; then
         echo -e "The volclava is installed under ${PREFIX}\nYou can use the following command to enable services to startup and add environment variables automatically on master and computing nodes: \n$0 --setup=post --env=${PREFIX}"
     else
         echo -e "The volclava is installed under ${PREFIX}/${PACKAGE_NAME}\nYou can use the following command to enable services to startup and add environment variables automatically other computing nodes:\n$0 --setup=post --env=${PREFIX}/${PACKAGE_NAME}"
     fi
-elif [ $PHASE == "post" ]; then
+elif [ "$PHASE" == "post" ]; then
     post_setup
-elif [ $PHASE == "pre-post" ]; then
+elif [ "$PHASE" == "pre-post" ]; then
     pre_setup
     post_setup
-elif [ $PHASE == "all" ]; then
+elif [ "$PHASE" == "all" ]; then
     pre_setup
     install
     post_setup

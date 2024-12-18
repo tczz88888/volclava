@@ -7,28 +7,34 @@ if [ $# -ne 1 ]; then
     exit 1
 fi
 
-if [ ! -e $1 ]; then
+if [ ! -e "$1" ]; then
     echo "$1 not exsit"
     exit 1
 fi
 
-if [ ! -d $1 ]; then
+if [ ! -d "$1" ]; then
     echo "$1 is not directory"
     exit 1
 fi
 
 service volclava stop
 
-daemon_pids=$(ps -ef | grep "$1/sbin" | grep -v grep | awk '{print $2}')
-if [ ! -z $daemon_pids ]; then
-    ps -ef | grep "$1/sbin" | grep -v grep | awk '{print $2}' | xargs kill -9
+new_dir_path=$(echo "$1" | sed 's/\/$//')
+daemon_pids=$(ps -ef | grep "$new_dir_path/sbin" | grep -v grep | awk '{print $2}')
+if [ ! -z "$daemon_pids" ]; then
+    ps -ef | grep "$new_dir_path/sbin" | grep -v grep | awk '{print $2}' | xargs kill -9
 fi
 
-chkconfig volclava off
-chkconfig --del volclava
+osType=$(sed -n '/^NAME=/ {s/^NAME="//;s/"$//;p}' /etc/os-release)
+if [ "$osType" == "Ubuntu" ]; then
+    /lib/systemd/systemd-sysv-install disable volclava
+else
+    chkconfig volclava off
+    chkconfig --del volclava
 
-if rpm -qa | grep volclava-1.0* > /dev/null 2>&1; then
-    rpm -e volclava-1.0*
+    if rpm -qa | grep volclava-1.0* > /dev/null 2>&1; then
+       rpm -e volclava-1.0*
+    fi
 fi
 
 rm -f /etc/init.d/volclava*
