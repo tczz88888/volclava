@@ -3,4 +3,4 @@
 #     Sets the C shell user environment for volclava commands
 #
 setenv LSF_ENVDIR @prefix@/etc
-set path = ($path @prefix@/bin)
+set path = (@prefix@/bin $path)
