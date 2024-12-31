@@ -4,6 +4,6 @@
 #
 
 LSF_ENVDIR=@prefix@/etc
-PATH=$PATH:@prefix@/bin
+PATH=@prefix@/bin:$PATH
 
 export LSF_ENVDIR PATH
