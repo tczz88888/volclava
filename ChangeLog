@@ -1,3 +1,16 @@
+2025-01-06  Mingze Li  <limingze.jiayou@bytedance.com>
+            Nan Qi <qinan.cn@bytedance.com>
+
+	* release volclava 1.0.1.
+
+	* Summary of changes:
+	1. bugfix: revert check for tcl result with function in tcl 8.6;
+	2. configure: set default limit from cpu to cpu>=0 in lsf.task;
+	3. update year of Copyright from 2021-2024 to 2021-2025;
+	4. bsub: enhance parameter check of bsub -R;
+	5. make source-script active in multiple volclava on the same host;
+	6. make install script support ubuntu OS;
+
 2024-11-11  Mingze Li  <limingze.jiayou@bytedance.com>
 
 	* re-open as volclava 1.0.
