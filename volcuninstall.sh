@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
+# Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
 
 if [ $# -ne 1 ]; then
     echo "Usage: volcuninstall.sh /volclava_top"

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
+ * Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
  *
  * $Id: lsbatch.h 397 2007-11-26 19:04:00Z mblack $
  * Copyright (C) 2007 Platform Computing Inc
