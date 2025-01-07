@@ -28,6 +28,9 @@ fi
 osType=$(sed -n '/^NAME=/ {s/^NAME="//;s/"$//;p}' /etc/os-release)
 if [ "$osType" == "Ubuntu" ]; then
     /lib/systemd/systemd-sysv-install disable volclava
+    if dpkg -l | grep volclava > /dev/null 2>&1; then
+        dpkg -P volclava
+    fi
 else
     chkconfig volclava off
     chkconfig --del volclava
