@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
+# Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
 
 chmod 755 /opt/volclava-1.0/lib/liblsf.a || true
 chmod 755 /opt/volclava-1.0/lib/liblsbatch.a || true

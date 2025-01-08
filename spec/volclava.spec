@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
+# Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
 # Copyright (C) 2011-2012 David Bigagli
 # Copyright (C) 2007 Platform Computing Inc.
 #
@@ -38,7 +38,7 @@ Summary: volclava Distributed Batch Scheduler
 Name: volclava
 Version: 1.0
 # Release: 1.b.%{build_timestamp}
-Release: 1.b.20241126
+Release: 1.b.20250106
 License: GPLv2
 Group: Applications/Productivity
 Vendor: volclava foundation
@@ -436,6 +436,13 @@ rm -rf ${_volclavatop}
 %attr(0755,volclava,volclava) %{_volclavatop}/work/logdir
 
 %changelog
+* Mon Jan 06 2025 Releasing volclava 1.0.1 by Bytedance Ltd. and/or its affiliates
+- bugfix: revert check for tcl result with function in tcl 8.6;
+- configure: set default limit from cpu to cpu>=0 in lsf.task;
+- update year of Copyright from 2021-2024 to 2021-2025;
+- bsub: enhance parameter check of bsub -R;
+- make source-script active in multiple volclava on the same host;
+- make install script support ubuntu OS;
 * Mon Nov 11 2024 Releasing volclava 1.0 by Bytedance Ltd. and/or its affiliates
 - Multiple feature support: bjobs -UF; bjobs -o/-json; bsub -pack; bsub -Ep; etc.
 - Multiple bugfix: MXJ not equal with maxCpus when set "!"; lshosts -l segmentation fault;

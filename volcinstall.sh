@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright (C) 2021-2024 Bytedance Ltd. and/or its affiliates
+# Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
 # Description:
 # You can use this script in two ways to install volclava in shared file system:
 # Way1: Install volclava in cluster by three steps:
@@ -30,9 +30,9 @@
 function usage() {
     echo "Usage: volcinstall.sh [--help]"
     echo "                      [--setup=pre [--uid=number]]"
-    echo "                      [--setup=install [--type=code|rpm] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file]]"
+    echo "                      [--setup=install [--type=code|rpm|deb] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file]]"
     echo "                      [--setup=post [--env=/volclava_top] [--startup=Y|y|N|n]]"
-    echo "                      [--type=code|rpm|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n]"
+    echo "                      [--type=code|rpm|deb|server] [--prefix=/opt/volclava] [--hosts=\"master server1 ...\"|/path/file] [--uid=number] [--startup=Y|y|N|n]"
 }
 
 
@@ -55,6 +55,9 @@ while [ $# -gt 0 ]; do
                 exit 1
             fi
             if [ "$TYPE" == "rpm" -a $setPrefix -eq 0 ]; then
+                PREFIX="/opt"
+            fi
+            if [ "$TYPE" == "deb" -a $setPrefix -eq 0 ]; then
                 PREFIX="/opt"
             fi
             if [ "$TYPE" == "server" -a $PHASE != "all" ]; then
@@ -128,7 +131,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-if [ "$TYPE" != "code" -a "$TYPE" != "rpm" -a "$TYPE" != "server" ]; then
+if [ "$TYPE" != "code" -a "$TYPE" != "rpm" -a "$TYPE" != "deb" -a "$TYPE" != "server" ]; then
     usage
     exit 1
 fi
@@ -149,6 +152,16 @@ if [ "$osType" = "Ubuntu" ] && [ "$TYPE" = "rpm" ]; then
    exit 1
 fi
 
+if [ "$osType" = "Rocky Linux" ] && [ "$TYPE" = "deb" ]; then
+   echo "Rocky Linux does not support deb installation, please install package from source code"
+   exit 1
+fi
+
+if [ "$osType" = "CentOS Linux" ] && [ "$TYPE" = "deb" ]; then
+   echo "CentOS Linux does not support deb installation, please install package from source code"
+   exit 1
+fi
+
 function pre_setup() {
     #add user
     if ! id -u "volclava" > /dev/null 2>&1; then
@@ -165,7 +178,7 @@ function pre_setup() {
         yum groupinstall -y "Development Tools"
     elif [ "$osType" = "Ubuntu" ]; then
         apt update
-        apt install -y build-essential automake tcl-dev libncurses-dev
+        apt install -y build-essential automake tcl-dev libncurses-dev debhelper
     else #CentOS
         yum install -y tcl-devel ncurses-devel
         yum groupinstall -y "Development Tools"
@@ -184,10 +197,24 @@ function post_setup() {
         return
     fi
 
-    #set up volclava service and shell environment 
-    cp -f $PREFIX/etc/volclava /etc/init.d/
-    cp -f $PREFIX/etc/volclava.csh /etc/profile.d/
-    cp -f $PREFIX/etc/volclava.sh /etc/profile.d/
+    #set up volclava service and shell environment
+    if [ "$TYPE" = "deb" ] && [ $setPrefix -ne 0 ]; then
+        cp $PREFIX/lib/systemd/system/volclava.service /lib/systemd/system/volclava.service
+        chmod 644 /lib/systemd/system/volclava.service
+        cp $PREFIX/etc/init.d/volclava /etc/init.d/volclava
+        chmod 755 /etc/init.d/volclava
+
+        systemctl daemon-reload
+
+        cp -f $PREFIX/etc/profile.d/volclava.csh /etc/profile.d/
+        cp -f $PREFIX/etc/profile.d/volclava.sh /etc/profile.d/
+
+    else
+        cp -f $PREFIX/etc/volclava /etc/init.d/
+        cp -f $PREFIX/etc/volclava.csh /etc/profile.d/
+        cp -f $PREFIX/etc/volclava.sh /etc/profile.d/
+    fi
+
 
     # configure the lava service to start at boot
     if [ "$osType" == "Ubuntu" ]; then
@@ -202,7 +229,7 @@ function post_setup() {
         service volclava start
     fi
 
-    source ${PREFIX}/etc/volclava.sh
+    source /etc/profile.d/volclava.sh
 
     if [ $? == 0 ]; then
         echo -e "Congratulates, installation is done and enjoy the journey!"
@@ -282,8 +309,42 @@ function install() {
         if [ ! -z "$HOSTS" ]; then
             addHosts2Cluster "$HOSTS" ${PREFIX}/etc/lsf.cluster.volclava
         fi
+    elif [ "$TYPE" = "deb" ]; then
+        #deb way to install volclava
+        chmod 755 bootstrap.sh
+
+        #create deb under ../
+        dpkg-buildpackage -b -rfakeroot -us -uc
+        if [ $? -ne 0 ]; then
+            echo "Failed to create volclava deb package. Please check."
+            exit 1
+        fi
+
+        #install volclava from deb package
+        if dpkg -l | grep volclava > /dev/null 2>&1; then
+            dpkg -P volclava
+        fi
+
+        if [ $setPrefix -ne 0 ]; then
+            #install deb with prefix
+            dpkg -x ../volclava_1.0*.deb $PREFIX
+            #append hosts into lsf.cluster file
+            if [ ! -z "$HOSTS" ]; then
+                 addHosts2Cluster  "$HOSTS" ${PREFIX}/opt/${PACKAGE_NAME}/etc/lsf.cluster.volclava
+            fi
+            sed -i "s|/opt/${PACKAGE_NAME}|${PREFIX}/opt/${PACKAGE_NAME}|g" $(grep -rl /opt/${PACKAGE_NAME} ${PREFIX}/)
+
+            chown volclava:volclava -R $PREFIX
+            chmod 755 -R $PREFIX
+        else
+            dpkg -i ../volclava_1.0*.deb
+            #append hosts into lsf.cluster file
+            if [ ! -z "$HOSTS" ]; then
+                 addHosts2Cluster  "$HOSTS" /opt/${PACKAGE_NAME}/etc/lsf.cluster.volclava
+            fi
+        fi
     else
-        #rpm way to intall volclava 
+        #rpm way to install volclava
         if which yum > /dev/null 2>&1; then
             if ! yum list installed rpm-build >/dev/null 2>&1; then
                 yum install -y rpm-build
@@ -295,7 +356,7 @@ function install() {
             echo "Failed to find yum ..."
             exit 1
         fi
-    
+
         chmod 755 rpm.sh
         chmod 755 bootstrap.sh
 

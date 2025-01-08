@@ -281,9 +281,11 @@ parseSection(char *resReq, struct sections *section)
     static char   *reqString;
     static int    reqStringSize;
     char          *cp;
+    static char   *check_cp;
     char          *p;
     int           i;
     int           j;
+    static int    flag_match_section=0;
 
 #define NSECTIONS       5
 #define SELECT_SECT     0
@@ -338,10 +340,39 @@ parseSection(char *resReq, struct sections *section)
 
 
             cp = sectptr[i];
-            while((*cp != ']') && (*cp != '\0'))
+            check_cp = sectptr[i];
+            while((*cp != ']') && (*cp != '\0')) {
                 cp++;
+                check_cp++;
+            }
             if (*cp != ']')
                 return PARSE_BAD_EXP;
+            else
+                check_cp++;
+
+            if (*check_cp != '\0') {
+                flag_match_section = 0;
+                for (j = 0; j < NSECTIONS ; j++) {
+                    if (strstr(check_cp, keywords[j]) != NULL) {
+                        flag_match_section = 1;
+                        if (i==j) {
+                            ls_syslog(LOG_DEBUG,"parseSection check failed loop 2.1 j:%d, duplicate section:%s.", j, keywords[j]);
+                            return PARSE_BAD_EXP;
+                        }
+                    }
+                }
+
+                while (*check_cp != '\0') {
+
+                    if ((*check_cp != ' ') && (flag_match_section == 0)){
+                        ls_syslog(LOG_DEBUG,"parseSection check failed loop 2.2 j:%d, *cp:%c, *check_cp:%c.", j, *cp, *check_cp);
+                        return PARSE_BAD_EXP;
+                    }
+                    check_cp++;
+                }
+
+            }
+
             *cp  = '\0';
         } else {
             if (i == SELECT_SECT)
@@ -359,6 +390,8 @@ parseSection(char *resReq, struct sections *section)
             else
                 break;
         }
+        ls_syslog(LOG_DEBUG,"parseSection loop 3 i:%d, sectptr[i]:%s, keywords[i]:%s",i ,sectptr[i], keywords[i]);
+
     }
 
     section->select = sectptr[SELECT_SECT];

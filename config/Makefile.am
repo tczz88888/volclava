@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2021 - 2024  Bytedance Ltd. and/or its affiliates 
+# Copyright (C) 2021-2025 Bytedance Ltd. and/or its affiliates
 # Copyright (C) David Bigagli
 #
 

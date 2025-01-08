@@ -1,3 +1,13 @@
+volclava (1.0-1.b.20250106) UNRELEASED; urgency=medium
+
+  * bugfix: revert check for tcl result with function in tcl 8.6;
+  * configure: set default limit from cpu to cpu>=0 in lsf.task;
+  * update year of Copyright from 2021-2024 to 2021-2025;
+  * bsub: enhance parameter check of bsub -R;
+  * make source-script active in multiple volclava on the same host;
+  * make install script support ubuntu OS;
+ -- Mingze Li <limingze.jiayou@bytedance.com>  Mon, 06 Jan 2025 15:57:18 +0800
+
 volclava (1.0-1.b.20241126) UNRELEASED; urgency=medium
 
   * Multiple feature support: bjobs -UF; bjobs -o/-json; bsub -pack; bsub -Ep; etc.
@@ -6,7 +16,7 @@ volclava (1.0-1.b.20241126) UNRELEASED; urgency=medium
     fix job slot limit reached while host is free.
   * Define new project name as volclava in related files.
   * Adapt to Ubuntu 20.04 and Rocky 8.10.
-    support ubuntu/debian with tcl 6.8 and glibc 2.31-0;
+    support ubuntu/debian with tcl 8.6 and glibc 2.31-0;
     bugfix: fix bjobs show nothing with no jobs;
     bugfix: remove ls_syslog in sbd child_handler due to dead lock;
  -- Mingze Li <limingze.jiayou@bytedance.com>  Mon, 11 Nov 2024 10:57:18 +0800
