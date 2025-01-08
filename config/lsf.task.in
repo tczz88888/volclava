@@ -12,8 +12,8 @@ c89/cpu>=0
 gcc/cpu>=0
 g++/cpu>=0
 CC
-compress/-:cpu>=0:mem>=0
-compressdir/cpu>=0:mem>=0
+compress/order[cpu:mem]
+compressdir/order[cpu:mem]
 deroff
 diff
 ditroff
@@ -41,7 +41,7 @@ tbl
 tpc
 troff/cpu>=0
 ttc
-uncompress/cpu>=0:mem>=0
+uncompress/order[cpu:mem]
 uuencode/cpu>=0
 wc
 what
