@@ -122,4 +122,7 @@ The following article offers plentiful user and administrator operation guides, 
 - [User Guide](docs/volclava%20%E5%AE%89%E8%A3%85%E5%8F%8A%E9%85%8D%E7%BD%AE%E6%96%87%E6%A1%A3.pdf)
 - [Administrator Guide](docs/volclava%20%E7%AE%A1%E7%90%86%E5%91%98%E6%89%8B%E5%86%8C.pdf)
 
+## Contact Us
+We welcome inquiries and collaboration opportunities regarding the advanced applications of our scheduler, such as developing new features and coming up with new product design. Let's jointly promote the growth of VolcLava. Please feel free to contact us at volclava@bytedance.com
+
 &copy; Copyright (C) 2021-2025 ByteBance Ltd. and/or its affiliates
