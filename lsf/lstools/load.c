@@ -303,12 +303,13 @@ makeFields(struct hostLoad *host, char *loadval[], char **dispindex)
         else {
             if (LS_ISBUSYON(host->status, j)) {
                 strcpy(firstFmt, fmt[id].busy);
-                sprintf(fmtField, "%s%s",firstFmt, fmt[id].normFmt);
-                sprintf(tmpfield, fmtField, host->li[j] * fmt[id].scale);
-            }
-            else { 
+            } else { 
                 strcpy(firstFmt, fmt[id].ok);
-                sprintf(fmtField, "%s%s", firstFmt, fmt[id].normFmt);
+            }
+            sprintf(fmtField, "%s%s", firstFmt, fmt[id].normFmt);
+            if ((strcmp(fmt[id].name, "ut") == 0) && (host->li[j] * fmt[id].scale) > 100) {
+                sprintf(tmpfield, fmtField, 100);
+            } else {
                 sprintf(tmpfield, fmtField, host->li[j] * fmt[id].scale);
             }
             sp = stripSpaces(tmpfield);
