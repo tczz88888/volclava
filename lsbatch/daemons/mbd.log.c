@@ -2308,7 +2308,7 @@ void
 checkAcctLog(void)
 {
     int             needArchive = 0;
-    time_t          now;
+    time_t          now = 0;
     struct stat     jbuf;
     static time_t   lastAcctCreationTime = -1;
 
@@ -3817,7 +3817,7 @@ log_signaljob(struct jData * jp, struct signalReq * signalReq, int userId,
 {
     static char             fname[] = "log_signaljob";
     int  sigValue;
-    int defSigValue;
+    int defSigValue = 0;
 
     if ((signalReq->sigValue != SIG_DELETE_JOB)
         && (signalReq->sigValue != SIG_KILL_REQUEUE)

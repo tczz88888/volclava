@@ -767,7 +767,7 @@ updUserData (struct jData *jData, int numJobs, int numPEND,
     static char fname[] = "updUserData";
     struct uData *up, *ugp;
     static struct uData **grpPtr = NULL;
-    int i, numSlots, numNew;
+    int i, numSlots = 0, numNew;
     int newJob;
 
     if (grpPtr == NULL && numofugroups > 0) {

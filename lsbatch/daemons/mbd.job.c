@@ -3411,7 +3411,7 @@ updateStopJobPreemptResources(struct jData *jp)
 
     FORALL_PRMPT_RSRCS(resn) {
         int hostn;
-        float val;
+        float val=0.0;
         GET_RES_RSRC_USAGE(resn, val, jp->shared->resValPtr,
                            jp->qPtr->resValPtr);
         if (val <= 0.0)
@@ -3910,7 +3910,7 @@ switchJobArray(struct jobSwitchReq *switchReq,
     static char       fname[] = "switchJobArray";
     struct jData      *jArrayPtr;
     struct qData      *qPtr;
-    int               cc;
+    int               cc=0;
 
 
     jArrayPtr = getJobData(switchReq->jobId);
@@ -4210,8 +4210,8 @@ moveJobArray(struct jobMoveReq *moveReq,
 {
     static char       fname[] = "moveJobArray";
     struct jData      *jArrayPtr;
-    int               cc;
-    int               savePosition;
+    int               cc=0;
+    int               savePosition=0;
 
     jArrayPtr = getJobData(moveReq->jobId);
     if (jArrayPtr == NULL) {
@@ -7862,7 +7862,7 @@ shouldResumeByRes (struct jData *jp)
 
 
     FORALL_PRMPT_RSRCS(j) {
-        float val;
+        float val=0.0;
         GET_RES_RSRC_USAGE(j, val, jp->shared->resValPtr,
                            jp->qPtr->resValPtr);
         if (val <= 0.0)

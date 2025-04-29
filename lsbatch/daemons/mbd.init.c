@@ -1790,7 +1790,7 @@ setManagers (struct clusterInfo clusterInfo)
 {
     static char fname[]="setManagers";
     struct passwd   *pw;
-    int i, numValid = 0, gid, temNum = 0, tempId;
+    int i, numValid = 0, gid=0, temNum = 0, tempId;
     char *sp;
     char managerIdStr[MAX_LSB_NAME_LEN], managerStr[MAX_LSB_NAME_LEN];
 

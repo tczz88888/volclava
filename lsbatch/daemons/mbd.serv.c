@@ -1255,7 +1255,7 @@ do_hostInfoReq(XDR *xdrs,
                struct sockaddr_in *from,
                struct LSFHeader *reqHdr)
 {
-    char *reply_buf;
+    char *reply_buf=NULL;
     XDR xdrs2;
     struct LSFHeader replyHdr;
     char *replyStruct;

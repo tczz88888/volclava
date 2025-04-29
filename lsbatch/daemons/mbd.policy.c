@@ -3508,7 +3508,7 @@ int
 findBestHosts (struct jData *jp, struct resVal *resValPtr, int needed,
                int ncandidates, struct candHost *hosts, bool_t orderForPreempt)
 {
-    int i, numHosts, last =FALSE;
+    int i, numHosts =0, last =FALSE;
     struct resVal defResVal, *resVal;
     float threshold;
 
@@ -4172,7 +4172,7 @@ scheduleAndDispatchJobs(void)
     hEnt                   *hashEntryPtr;
     struct jRef *jR;
     struct jRef *jR0;
-    struct jData *jPtr;
+    struct jData *jPtr = NULL;
     struct jData *jPtr0;
     int min;
     int cc;
@@ -6702,7 +6702,7 @@ freeReservePreemptResources(struct jData *jp)
 {
     static char         fname[] = "freeReservePreemptResources";
     int hostn, resn;
-    float val;
+    float val = 0.0;
     FORALL_PRMPT_HOST_RSRCS(hostn, resn, val, jp) {
         removeReservedByWaitPRHQValue(resn, val, jp->rsrcPreemptHPtr[hostn], jp->qPtr);
         if (logclass & (LC_SCHED))
@@ -6727,7 +6727,7 @@ void
 updPreemptResourceByRUNJob(struct jData *jp)
 {
     int hostn, resn;
-    float val;
+    float val = 0.0;
 
 
     if (!(jp->jStatus & JOB_STAT_RUN)) {
@@ -6788,7 +6788,7 @@ markPreemptForPRHQValues(struct resVal *resValPtr, int numHosts,
          hostn == 0 || (slotResourceReserve && hostn < numHosts) ;
          hostn++) {
         FORALL_PRMPT_RSRCS(resn) {
-            float needPreempt, usable, val;
+            float needPreempt, usable, val =0.0;
             struct resourceInstance *instance;
             GET_RES_RSRC_USAGE(resn, val, resValPtr, qPtr->resValPtr);
             if (val <= 0.0)
@@ -6832,9 +6832,9 @@ handleXor(struct jData *jpbw)
 {
     static char fname[] = "handleXor";
     int i, j, foundGroup, numXorExprs;
-    int *indicesOfCandPtr;
-    struct resVal* resValPtr;
-    struct candHost *candPtr;
+    int *indicesOfCandPtr = NULL;
+    struct resVal* resValPtr = NULL;
+    struct candHost *candPtr = NULL;
     int numCandPtr;
     struct tclHostData tclHostData;
 
