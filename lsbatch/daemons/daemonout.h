@@ -28,7 +28,6 @@
 #include "../../lsf/lib/lib.hdr.h"
 #include "../../lsf/lib/lproto.h"
 #include "../lib/lsb.sig.h"
-#include <sys/types.h>
 
 #define BATCH_MASTER_PORT   40000
 #define ALL_HOSTS      "all"                
@@ -80,8 +79,6 @@ typedef enum {
 
     
     BATCH_SET_JOB_ATTR    = 90,      
-
-    BATCH_PREPARE_FOR_OP  =1024,
 
 } mbdReqType;
 

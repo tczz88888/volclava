@@ -48,7 +48,7 @@ do_newjob(XDR *xdrs, int chfd, struct LSFHeader *reqHdr)
     XDR                xdrs2;
     struct jobSpecs    jobSpecs;
     struct jobReply    jobReply;
-    struct jobCard     *jp;
+    struct jobCard     *jp = NULL;
     sbdReplyType       reply;
     struct LSFHeader   replyHdr;
     char               *replyStruct;
@@ -214,7 +214,7 @@ do_switchjob(XDR * xdrs, int chfd, struct LSFHeader * reqHdr)
     char               found = FALSE;
     struct LSFHeader   replyHdr;
     char               *replyStruct;
-    struct jobCard     *jp;
+    struct jobCard     *jp = NULL;
     struct lsfAuth     *auth = NULL;
     
     memset(&jobReply, 0, sizeof(struct jobReply));
@@ -372,11 +372,11 @@ do_modifyjob(XDR * xdrs, int chfd, struct LSFHeader * reqHdr)
     XDR                xdrs2;
     struct jobSpecs    jobSpecs;
     struct jobReply    jobReply;
-    sbdReplyType       reply;
+    sbdReplyType       reply = 0;
     char               found = FALSE;
     struct LSFHeader   replyHdr;
     char               *replyStruct;
-    struct jobCard     *jp;
+    struct jobCard     *jp = NULL;
     struct lsfAuth     *auth = NULL;
     
     memset(&jobReply, 0, sizeof(struct jobReply));
@@ -596,8 +596,8 @@ do_sigjob(XDR * xdrs, int chfd, struct LSFHeader * reqHdr)
     char               found = FALSE;
     int                cc;
     int                sigValue;
-    int                savedActReasons;
-    int                savedActSubReasons;
+    int                savedActReasons = 0;
+    int                savedActSubReasons = 0;
     struct lsfAuth     *auth = NULL;
     
     memset(&jobReply, 0, sizeof(struct jobReply));

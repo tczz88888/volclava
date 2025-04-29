@@ -679,7 +679,7 @@ processClient(struct clientNode *client, int *needFree)
 
     switch (mbdReqtype) {
 
-        case BATCH_PREPARE_FOR_OP:
+        case PREPARE_FOR_OP:
             if (do_readyOp(&xdrs, client->chanfd, &from, &reqHdr) < 0) {
                 shutDownClient(client);
                 xdr_destroy(&xdrs);

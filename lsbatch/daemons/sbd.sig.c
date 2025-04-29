@@ -1606,7 +1606,7 @@ exeChkpnt(struct jobCard *jp, int chkFlags, char * exitFile)
     pid_t pid1, echkpntPid;
     char errMsg[MAXLINELEN], msg[MAXLINELEN*2];
     LS_WAIT_T status;
-    struct hostent *hp;
+    struct hostent *hp = NULL;
     FILE *fp;
     int  argc;
     char *argv[MAX_ARGS];

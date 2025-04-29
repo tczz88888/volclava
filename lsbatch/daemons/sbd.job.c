@@ -3035,7 +3035,7 @@ acctMapTo(struct jobCard *jobCard)
     char  user[MAX_LSB_NAME_LEN], line[MAXLINELEN];
     struct passwd *pw;
     int num, ccount, i = 0, found=FALSE;
-    char myhost, mycluster;
+    char myhost =FALSE , mycluster;
     struct hostent *hp;
 
     if (jobCard->jobSpecs.userId == PC_LSF_CUGID) {
@@ -3445,7 +3445,7 @@ runQPost(struct jobCard *jp)
 
         exit(-1);
     }
-
+    return 0;
 }
 
 /* chPrePostUser()

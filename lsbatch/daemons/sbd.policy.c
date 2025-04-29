@@ -943,7 +943,7 @@ jobSuspendAction (struct jobCard *jp, int sigValue, int suspReasons, int suspSub
 static void
 sigActEnd (struct jobCard *jobCard)
 {
-    int w_status;
+    int w_status = 0;
     struct stat st;
     bool_t freed = FALSE;
 
