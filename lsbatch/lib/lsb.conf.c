@@ -418,6 +418,49 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
         {NULL, NULL, 0}
 
     };
+    /**
+     * @enum ConfigParam
+     * @brief 配置文件参数枚举，显式绑定 keylist[] 数组下标
+     * 
+     * 每个枚举值必须与 keylist[] 数组元素顺序严格一致
+     */
+    typedef enum {
+        PARAM_LSB_MANAGER                  = 0,   // [0] LSB_MANAGER - 已废弃，使用集群配置文件 MANAGERS 替代
+        PARAM_DEFAULT_QUEUE                = 1,   // [1] DEFAULT_QUEUE - 自动队列选择的系统默认队列
+        PARAM_DEFAULT_HOST_SPEC            = 2,   // [2] DEFAULT_HOST_SPEC - 用于调整CPU时间限制的默认主机规格
+        PARAM_DEFAULT_PROJECT              = 3,   // [3] DEFAULT_PROJECT - 作业默认分配的项目
+        PARAM_JOB_ACCEPT_INTERVAL          = 4,   // [4] JOB_ACCEPT_INTERVAL - 主机接受批量作业的时间间隔（以MBD_SLEEP_TIME为单位）
+        PARAM_PG_SUSP_IT                   = 5,   // [5] PG_SUSP_IT - 恢复挂起进程组的空闲时间（秒）
+        PARAM_MBD_SLEEP_TIME               = 6,   // [6] MBD_SLEEP_TIME - 主批处理守护进程调度间隔（毫秒）
+        PARAM_CLEAN_PERIOD                 = 7,   // [7] CLEAN_PERIOD - 已完成作业在内存中的保留时间（秒）
+        PARAM_MAX_RETRY                    = 8,   // [8] MAX_RETRY - 连接从批处理守护进程的最大重试次数
+        PARAM_SBD_SLEEP_TIME               = 9,   // [9] SBD_SLEEP_TIME - 从批处理守护进程作业检查间隔（秒）
+        PARAM_MAX_JOB_NUM                  = 10,  // [10] MAX_JOB_NUM - 当前事件文件存储的最大完成作业数
+        PARAM_RETRY_INTERVAL               = 11,  // [11] RETRY_INTERVAL - 失败作业的重试间隔（秒）
+        PARAM_MAX_SBD_FAIL                 = 12,  // [12] MAX_SBD_FAIL - 连接从批处理守护进程的最大失败次数
+        PARAM_RUSAGE_UPDATE_RATE           = 13,  // [13] RUSAGE_UPDATE_RATE - 资源使用统计更新频率（秒）
+        PARAM_RUSAGE_UPDATE_PERCENT        = 14,  // [14] RUSAGE_UPDATE_PERCENT - 触发资源更新的变化百分比（1-100）
+        PARAM_COND_CHECK_TIME              = 15,  // [15] COND_CHECK_TIME - 调度条件检查间隔（秒）
+        PARAM_MAX_SBD_CONNS                = 16,  // [16] MAX_SBD_CONNS - 最大从批处理守护进程连接数（未公开）
+        PARAM_MAX_SCHED_STAY               = 17,  // [17] MAX_SCHED_STAY - 作业在调度队列的最大停留时间（秒）
+        PARAM_FRESH_PERIOD                 = 18,  // [18] FRESH_PERIOD - 资源信息刷新周期（秒）
+        PARAM_MAX_JOB_ARRAY_SIZE           = 19,  // [19] MAX_JOB_ARRAY_SIZE - 作业数组的最大子任务数（1-65534）
+        PARAM_DISABLE_UACCT_MAP            = 20,  // [20] DISABLE_UACCT_MAP - 远程作业的用户账户映射开关（Y/N）
+        PARAM_JOB_TERMINATE_INTERVAL       = 21,  // [21] JOB_TERMINATE_INTERVAL - 作业终止检查间隔（秒）
+        PARAM_JOB_RUN_TIMES                = 22,  // [22] JOB_RUN_TIMES - 作业最大运行次数
+        PARAM_JOB_DEP_LAST_SUB             = 23,  // [23] JOB_DEP_LAST_SUB - 作业依赖调度策略开关（0/1）
+        PARAM_JOB_SPOOL_DIR                = 24,  // [24] JOB_SPOOL_DIR - 作业临时输出目录路径
+        PARAM_MAX_USER_PRIORITY            = 25,  // [25] MAX_USER_PRIORITY - 用户最大作业优先级（>0）
+        PARAM_JOB_PRIORITY_OVER_TIME       = 26,  // [26] JOB_PRIORITY_OVER_TIME - 优先级动态增长策略（值/分钟）
+        PARAM_SHARED_RESOURCE_UPDATE_FACTOR= 27,  // [27] SHARED_RESOURCE_UPDATE_FACTOR - 集群共享资源更新因子（1-100）
+        PARAM_SCHE_RAW_LOAD                = 28,  // [28] SCHE_RAW_LOAD - 原始负载调度模式开关（Y/N）
+        PARAM_PRE_EXEC_DELAY               = 29,  // [29] PRE_EXEC_DELAY - 作业执行前延迟时间（秒）
+        PARAM_SLOT_RESOURCE_RESERVE        = 30,  // [30] SLOT_RESOURCE_RESERVE - 槽位资源预留开关（Y/N）
+        PARAM_MAX_JOBID                    = 31,  // [31] MAX_JOBID - 系统最大作业ID（默认范围：10000-9999999）
+        PARAM_MAX_ACCT_ARCHIVE_FILE        = 32,  // [32] MAX_ACCT_ARCHIVE_FILE - 会计日志最大归档文件数
+        PARAM_ACCT_ARCHIVE_SIZE            = 33,  // [33] ACCT_ARCHIVE_SIZE - 会计日志归档触发大小（KB）
+        PARAM_ACCT_ARCHIVE_AGE             = 34,  // [34] ACCT_ARCHIVE_AGE - 会计日志保留天数（天）
+    } ConfigParam;
 
     if (conf == NULL)
         return (FALSE);
@@ -460,13 +503,13 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
     for (i = 0; keylist[i].key != NULL; i++) {
         if (keylist[i].val != NULL && strcmp (keylist[i].val, "")) {
 
-            if (i == 0) {
+            if (i == PARAM_LSB_MANAGER) {
                 ls_syslog(LOG_WARNING, _i18n_msg_get(ls_catd , NL_SETN, 5061,
                                                      "%s: Ignore LSB_MANAGER value <%s>; use MANAGERS  defined in cluster file instead"), pname, keylist[i].val); /* catgets 5061 */
                 lsberrno = LSBE_CONF_WARNING;
             }
 
-            else if (i == 1) {
+            else if (i == PARAM_DEFAULT_QUEUE) {
                 pConf->param->defaultQueues = putstr_ (keylist[i].val);
                 if (pConf->param->defaultQueues == NULL) {
                     ls_syslog(LOG_ERR, I18N_FUNC_D_FAIL_M, pname,
@@ -477,7 +520,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                 }
             }
 
-            else if (i == 2) {
+            else if (i == PARAM_DEFAULT_HOST_SPEC) {
                 pConf->param->defaultHostSpec = putstr_ (keylist[i].val);
                 if (pConf->param->defaultHostSpec == NULL) {
                     ls_syslog(LOG_ERR, I18N_FUNC_D_FAIL_M, pname,
@@ -487,7 +530,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                     return (FALSE);
                 }
             }
-            else if (i == 24) {
+            else if (i == PARAM_JOB_SPOOL_DIR) {
 
                 if (checkSpoolDir(keylist[i].val) == 0) {
                     pConf->param->pjobSpoolDir = putstr_ (keylist[i].val);
@@ -505,7 +548,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                     lsberrno = LSBE_CONF_WARNING;
                 }
             }
-            else if (i == 32) {
+            else if (i == PARAM_MAX_ACCT_ARCHIVE_FILE) {
 
                 value = my_atoi(keylist[i].val, INFINIT_INT, 0);
                 if (value == INFINIT_INT){
@@ -518,7 +561,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                     pConf->param->maxAcctArchiveNum = value;
                 }
             }
-            else if (i == 33) {
+            else if (i == PARAM_ACCT_ARCHIVE_SIZE) {
 
                 value = my_atoi(keylist[i].val, INFINIT_INT, 0);
                 if (value == INFINIT_INT){
@@ -531,7 +574,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                     pConf->param->acctArchiveInSize = value;
                 }
             }
-            else if (i == 34) {
+            else if (i == PARAM_ACCT_ARCHIVE_AGE) {
 
                 value = my_atoi(keylist[i].val, INFINIT_INT, 0);
                 if (value == INFINIT_INT){
@@ -545,7 +588,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                 }
             }
 
-            else if (i == 3) {
+            else if (i == PARAM_DEFAULT_PROJECT) {
                 pConf->param->defaultProject = putstr_(keylist[i].val);
                 if (pConf->param->defaultProject == NULL) {
                     ls_syslog(LOG_ERR, I18N_FUNC_D_FAIL_M, pname,
@@ -555,7 +598,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                     return (FALSE);
                 }
             }
-            else if (i == 4 || i == 5 ) {
+            else if (i == PARAM_JOB_ACCEPT_INTERVAL || i == PARAM_PG_SUSP_IT ) {
                 if ((value = my_atoi(keylist[i].val, INFINIT_INT, -1))
                     == INFINIT_INT) {
                     ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5067,
@@ -566,7 +609,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                 else
                     pConf->param->pgSuspendIt = value;
             }
-            else if (i == 20) {
+            else if (i == PARAM_DISABLE_UACCT_MAP) {
                 if (strcasecmp(keylist[i].val, "Y") == 0) {
                     pConf->param->disableUAcctMap = TRUE;
                 } else if (strcasecmp(keylist[i].val, "N") == 0) {
@@ -577,7 +620,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                     pConf->param->disableUAcctMap = FALSE;
                 }
             }
-            else if ( i == 26 )  {
+            else if ( i == PARAM_JOB_PRIORITY_OVER_TIME )  {
 
                 int value = 0, mytime = 0;
                 char str[100], *ptr;
@@ -600,7 +643,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                 pConf->param->jobPriorityValue = value;
                 pConf->param->jobPriorityTime  = mytime;
 
-            } else if (i == 27) {
+            } else if (i == PARAM_SHARED_RESOURCE_UPDATE_FACTOR) {
 
                 value = my_atoi(keylist[i].val, INFINIT_INT, 0);
                 if (value == INFINIT_INT) {
@@ -613,7 +656,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                 }
             }
 
-            else if (i == 31)
+            else if (i == PARAM_MAX_JOBID)
             {
                 int value = 0;
                 value = my_atoi(keylist[i].val, INFINIT_INT, 0);
@@ -640,18 +683,18 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                 }
             }
 
-            else if (i == 28) {
+            else if (i == PARAM_SCHE_RAW_LOAD) {
                 if (strcasecmp(keylist[i].val, "Y") == 0)
                     pConf->param->scheRawLoad = TRUE;
                 else
                     pConf->param->scheRawLoad = FALSE;
-            } else if (i == 30) {
+            } else if (i == PARAM_SLOT_RESOURCE_RESERVE) {
                 if (strcasecmp(keylist[i].val, "Y") == 0) {
                     pConf->param->slotResourceReserve  = TRUE;
                 } else {
                     pConf->param->slotResourceReserve = FALSE;
                 }
-            } else if (i > 5) {
+            } else if (i > 5) {//这些参数都需要计算和使用value，并且逻辑部分相同，所以一起处理了
                 if ( i < 23)
                     value = my_atoi(keylist[i].val, INFINIT_INT, 0);
                 else
@@ -662,46 +705,46 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                     lsberrno = LSBE_CONF_WARNING;
                 } else
                     switch (i) {
-                        case 6:
+                        case PARAM_MBD_SLEEP_TIME:
                             pConf->param->mbatchdInterval = value;
                             break;
-                        case 7:
+                        case PARAM_CLEAN_PERIOD:
                             pConf->param->cleanPeriod = value;
                             break;
-                        case 8:
+                        case PARAM_MAX_RETRY:
                             pConf->param->maxDispRetries = value;
                             break;
-                        case 9:
+                        case PARAM_SBD_SLEEP_TIME:
                             pConf->param->sbatchdInterval = value;
                             break;
-                        case 10:
+                        case PARAM_MAX_JOB_NUM:
                             pConf->param->maxNumJobs = value;
                             break;
-                        case 11:
+                        case PARAM_RETRY_INTERVAL:
                             pConf->param->retryIntvl = value;
                             break;
-                        case 12:
+                        case PARAM_MAX_SBD_FAIL:
                             pConf->param->maxSbdRetries = value;
                             break;
-                        case 13:
+                        case PARAM_RUSAGE_UPDATE_RATE:
                             pConf->param->rusageUpdateRate = value;
                             break;
-                        case 14:
+                        case PARAM_RUSAGE_UPDATE_PERCENT:
                             pConf->param->rusageUpdatePercent = value;
                             break;
-                        case 15:
+                        case PARAM_COND_CHECK_TIME:
                             pConf->param->condCheckTime = value;
                             break;
-                        case 16:
+                        case PARAM_MAX_SBD_CONNS:
                             pConf->param->maxSbdConnections = value;
                             break;
-                        case 17:
+                        case PARAM_MAX_SCHED_STAY:
                             pConf->param->maxSchedStay = value;
                             break;
-                        case 18:
+                        case PARAM_FRESH_PERIOD:
                             pConf->param->freshPeriod = value;
                             break;
-                        case 19:
+                        case PARAM_MAX_JOB_ARRAY_SIZE:
                             if ( value < 1 || value >= LSB_MAX_ARRAY_IDX) {
                                 ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5073,
                                                                  "%s: File %s in section Parameters ending at line %d: Value <%s> of %s is out of range[1-65534]); ignored"), pname, fname, *lineNum, keylist[i].val, keylist[i].key) ; /* catgets 5073 */
@@ -710,16 +753,16 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                             else
                                 pConf->param->maxJobArraySize = value;
                             break;
-                        case 21:
+                        case PARAM_JOB_TERMINATE_INTERVAL:
                             pConf->param->jobTerminateInterval = value;
                             break;
-                        case 22:
+                        case PARAM_JOB_RUN_TIMES:
                             pConf->param->jobRunTimes = value;
                             break;
-                        case 23:
+                        case PARAM_JOB_DEP_LAST_SUB:
                             pConf->param->jobDepLastSub = value;
                             break;
-                        case 25:
+                        case PARAM_MAX_USER_PRIORITY:
                             value = my_atoi(keylist[i].val, INFINIT_INT, -1);
                             if ( value != INFINIT_INT) {
 
@@ -733,7 +776,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                                           keylist[i].key);
                             }
                             break;
-                        case 29:
+                        case PARAM_PRE_EXEC_DELAY:
                             pConf->param->preExecDelay = value;
                             break;
                         default:
