@@ -28,6 +28,7 @@
 #include <netdb.h>
 #include <errno.h>
 #include <cJSON.h>
+#include <getopt.h>
 #define NL_SETN 8
 
 
@@ -52,6 +53,9 @@ static int *numJobs;
 static int numJids;
 static int foundJids;
 
+/*控制是否不显示header，默认显示*/
+static int noheader_flag = FALSE;
+
 #define MAX_TIMERSTRLEN         20
 #define MAX_TIMESTRLEN          20
 int uflag = FALSE;
@@ -74,13 +78,20 @@ static struct config_param securebjobsParams[] =
     {NULL,NULL}
 };
 
+/*支持长选项*/
+static struct option long_options[] = {
+    {"noheader", no_argument, 0, 'n'}, 
+    {0, 0, 0, 0} 
+};
+
+
 void
 usage (char *cmd)
 {
     fprintf(stderr, I18N_Usage);
 
     fprintf(stderr, \
-": %s [-h] [-V] [-w |-l |-UF] [-a] [-d] [-p] [-s] [-r] [-o] [-json]", cmd);
+": %s [-h] [-V] [-w |-l |-UF] [-a] [-d] [-p] [-s] [-r] [-o] [-json] [-noheader]", cmd);
 
     if (lsbMode_ == LSB_MODE_BATCH)
         fprintf(stderr, " [-A]\n");
@@ -408,7 +419,7 @@ do_options (int argc, char **argv, int *options, char **user, char **queue,
     *jobName = NULL;
     *format = 0;
 
-    while ((cc = getopt(argc, argv, "VladpsrwWgRAhJ:q:u:m:N:P:SU:o:j:")) != EOF) {
+    while ((cc = getopt_long(argc, argv, "VladpsrwWgRAhJ:q:u:m:N:P:SU:o:j:n:", long_options, NULL)) != EOF) {
         switch (cc) {
             case 'w':
                 if (*format == LONG_FORMAT || *format == UF_FORMAT || *format == O_FORMAT )
@@ -462,6 +473,9 @@ do_options (int argc, char **argv, int *options, char **user, char **queue,
                     usage(argv[0]);
                 *host = optarg;
                 break;
+            case 'n':
+                noheader_flag = TRUE;
+                break;
             case 'N':
                 Nflag = TRUE;
                 norOp = optarg;
@@ -507,6 +521,13 @@ do_options (int argc, char **argv, int *options, char **user, char **queue,
     }
 
     TIMEIT(1, (numJids = getSpecJobIds (argc, argv, &usrJids, NULL)), "getSpecJobIds");
+
+    /*冲突检查，-l/-UF 不能和-noheader一起使用*/
+    if (noheader_flag && (*format == LONG_FORMAT || *format == UF_FORMAT)) {
+        fprintf(stderr, "The --noheader option cannot be used with -l or -UF options.\n");
+        usage(argv[0]);
+    }
+
 
     if (jsonflag && *format != O_FORMAT) {
         usage(argv[0]);
@@ -613,7 +634,7 @@ displayJobs (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
             exec_host = job->exHosts[0];
     }
 
-    if (first) {
+    if (first&&!noheader_flag) {
         first = FALSE;
         if (job->jType == JGRP_NODE_ARRAY)
             printf((_i18n_msg_get(ls_catd,NL_SETN,1459, "JOBID    ARRAY_SPEC  OWNER   NJOBS PEND DONE  RUN EXIT SSUSP USUSP PSUSP\n"))); /* catgets  1459  */
@@ -955,7 +976,7 @@ displayO (struct jobInfoEnt *job, struct jobInfoHead *jInfoH,
             exec_host = job->exHosts[0];
     }
 
-    if (first) {
+    if (first&&!noheader_flag) {
         first = FALSE;
         printf((_i18n_msg_get(ls_catd,NL_SETN,1461, header))); /* catgets  1461  */
     }
