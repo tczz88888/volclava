@@ -1254,6 +1254,7 @@ extern int                  do_statusReq(XDR *, int, struct sockaddr_in *,
                                          int *,
                                          struct LSFHeader *);
 extern int                  do_errorReq(int,  struct LSFHeader *);
+extern int                  do_showConfReq(int, struct LSFHeader *);
 extern int                  do_jobSwitchReq(XDR *, int, struct sockaddr_in *,
                                             char *, struct LSFHeader *,
                                             struct lsfAuth *);

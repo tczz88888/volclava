@@ -64,6 +64,7 @@ enum limReqCode {
     LIM_ADD_HOST      = 14,
     LIM_RM_HOST       = 15,
     LIM_GET_MASTINFO2 = 16,
+    LIM_SHOWCONF      = 17,
 
 #define FIRST_LIM_PRIV	LIM_REBOOT
     LIM_REBOOT        = 50,

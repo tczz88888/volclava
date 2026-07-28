@@ -361,6 +361,8 @@ main (int argc, char **argv)
     sigprocmask(SIG_SETMASK, NULL, &oldsigmask);
 
     sinit();
+    initShowconfValues(genParams_);
+    initShowconfValues(daemonParams);
     ls_syslog(LOG_INFO, (_i18n_msg_get(ls_catd , NL_SETN, 5041, "%s: (re-)started")), fname);        /* catgets 5041 */
 
 
@@ -676,6 +678,11 @@ processMsg(struct clientNode *client)
     case CMD_SBD_DEBUG:
 	TIMEIT(2, do_sbdDebug(&xdrs, client->chanfd, &reqHdr), "do_sbdDebug");
 	break;
+
+    case CMD_SBD_SHOWCONF:
+        TIMEIT(2, do_showConfReq(client->chanfd, &reqHdr),
+               "do_showConfReq");
+        break;
 
 
     case BATCH_JOB_MSG:
@@ -1119,5 +1126,4 @@ isLSFAdmin(struct lsfAuth *auth)
     return(FALSE);
 
 }
-
 

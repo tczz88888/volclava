@@ -194,6 +194,8 @@ Reading configuration from %s/lsf.conf\n", env_dir);
 %s: initenv() failed reading lsf.conf from %s", __func__, env_dir);
         lim_Exit("main");
     }
+    initShowconfValues(genParams_);
+    initShowconfValues(limParams);
 
     if (showTypeModel) {
         /* Print my type, model, architecture
@@ -505,6 +507,9 @@ processUDPMsg(void)
             break;
         case LIM_GET_RESOUINFO:
             resourceInfoReq(&xdrs, &from, &reqHdr, -1);
+            break;
+        case LIM_SHOWCONF:
+            showConfReq(&from, &reqHdr);
             break;
         case LIM_REBOOT:
             reconfigReq(&xdrs, &from, &reqHdr);

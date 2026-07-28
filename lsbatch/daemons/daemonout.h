@@ -72,6 +72,7 @@ typedef enum {
     BATCH_UNUSED_39      = 39,
     BATCH_STATUS_CHUNK   = 40,       
     BATCH_JOB_SUB_PACK    = 41,
+    BATCH_SHOWCONF       = 42,
     BATCH_SET_JOB_ATTR   = 90,
     READY_FOR_OP         = 1023,
     PREPARE_FOR_OP       = 1024,
@@ -347,7 +348,8 @@ typedef enum {
 
  
     CMD_SBD_REBOOT      = 300,
-    CMD_SBD_SHUTDOWN    = 301
+    CMD_SBD_SHUTDOWN    = 301,
+    CMD_SBD_SHOWCONF    = 302
 } sbdReqType;
 
 

@@ -55,6 +55,7 @@ static char *cmdList[] = {
 			    "limtime",
   			    "resdebug",
 		            "restime",
+		            "showconf",
 		            "help",
 		            "?",
 		            "quit",
@@ -79,6 +80,7 @@ static char *cmdSyntax[] =
   "[-l timing_level] [-f logfile_name] [-o] [host_name ...]",
   "[-c class_name] [-l debug_level] [-f logfile_name] [-o] [host_name ...]",
   "[-l timing_level] [-f logfile_name] [-o] [host_name ...]",
+  "lim [ host_name ... | all ]",
   "[ command ...]",
   "[ command ...]",
   "",
@@ -101,6 +103,7 @@ static char *cmdInfo[] = { "Reconfigure LSF",  /* catgets 100 */
 			   "Debug LIM timing message",  /* catgets 113 */
 			   "Debug RES",  /* catgets 114 */
 			   "Debug RES timing message",  /* catgets 115 */
+                           "Display daemon configuration",
                            "Get help on commands",  /* catgets 116 */
                            "Get help on commands",
                            "Quit",  /* catgets 117 */
@@ -110,7 +113,7 @@ static char *cmdInfo[] = { "Reconfigure LSF",  /* catgets 100 */
 static int opCodeList[] = {  LIM_CMD_REBOOT, -1, LIM_CMD_REBOOT, -1, LIM_CMD_SHUTDOWN, 0,
 		      -1, RES_CMD_REBOOT, -1, RES_CMD_SHUTDOWN, RES_CMD_LOGON,
 		      RES_CMD_LOGOFF, LIM_DEBUG, LIM_TIMING, RES_DEBUG,
-		      RES_TIMING, -1, -1, -1
+		      RES_TIMING, -1, -1, -1, -1
                    };
 
 int
@@ -216,6 +219,9 @@ doLsCmd (int argc, char *argv[])
     case LSADM_RESTIME:
 	cmdRet = lsadminDebug (argc, argv, opCodeList[myIndex]);
 	break;
+    case LSADM_SHOWCONF:
+        cmdRet = limShowconf(argc, argv);
+        break;
     case LSADM_RESSTARTUP :
         cmdRet = startup (argc, argv, myIndex);
 	break;

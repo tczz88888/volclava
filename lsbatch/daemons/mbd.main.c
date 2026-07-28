@@ -439,6 +439,8 @@ main (int argc, char **argv)
     /* Go go go...
      */
     TIMEIT(0, minit(FIRST_START),"minit");
+    initShowconfValues(genParams_);
+    initShowconfValues(daemonParams);
     log_mbdStart();
     ls_syslog(LOG_INFO, "%s: (re-)started", __func__);
     pollSbatchds(FIRST_START);
@@ -752,8 +754,9 @@ processClient(struct clientNode *client, int *needFree)
         goto endLoop;
     }
 
-    if ((cc = authRequest(&auth, &xdrs, &reqHdr, &from, &laddr,
-                          client->fromHost, chanSock_(s))) !=
+    if (mbdReqtype != BATCH_SHOWCONF
+        && (cc = authRequest(&auth, &xdrs, &reqHdr, &from, &laddr,
+                             client->fromHost, chanSock_(s))) !=
         LSBE_NO_ERROR) {
         errorBack(s, cc, &from);
         goto endLoop;
@@ -776,6 +779,11 @@ processClient(struct clientNode *client, int *needFree)
     }
 
     switch (mbdReqtype) {
+
+        case BATCH_SHOWCONF:
+            TIMEIT(0, do_showConfReq(s, &reqHdr),
+                   "do_showConfReq()");
+            break;
 
         case PREPARE_FOR_OP:
             if (do_readyOp(&xdrs, client->chanfd, &from, &reqHdr) < 0) {
@@ -1644,6 +1652,8 @@ initQmbdListenSock(void)
 static void
 initDaemonParams(void)
 {
+    int rc = 0;
+    char *tmp = NULL;
     if (isint_(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue))
         connTimeout = atoi(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue);
     else
@@ -1796,6 +1806,11 @@ initDaemonParams(void)
                       "%s: CPU core count %d exceeds maximum %d, using maximum %d",
                       __func__, cpuCores, MAX_QMBD_THREAD_NUM, MAX_QMBD_THREAD_NUM);
             qmbdThreadNum = MAX_QMBD_THREAD_NUM;
+        }
+        tmp = realloc(daemonParams[LSB_QMBD_THREAD_NUM].paramValue, 32);
+        if(tmp != NULL){
+            daemonParams[LSB_QMBD_THREAD_NUM].paramValue = tmp;
+            sprintf(daemonParams[LSB_QMBD_THREAD_NUM].paramValue, "%d", qmbdThreadNum);
         }
     }
 

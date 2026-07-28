@@ -31,6 +31,7 @@
 #include "../lib/lib.table.h"
 #include "../lib/lib.hdr.h"
 #include "../lib/lib.xdr.h"
+#include "../lib/lib.daemonInfo.h"
 
 #define EXCHINTVL 	    15
 #define SAMPLINTVL           5
@@ -328,6 +329,7 @@ typedef enum {
 
 
 extern struct config_param limParams[];
+extern struct config_param genParams_[];
 extern int lim_debug;
 extern int lim_CheckMode;
 extern int lim_CheckError;
@@ -436,6 +438,7 @@ extern void infoReq(XDR *, struct sockaddr_in *, struct LSFHeader *, int);
 extern void cpufReq(XDR *, struct sockaddr_in *, struct LSFHeader *);
 extern void clusInfoReq(XDR *, struct sockaddr_in *, struct LSFHeader *);
 extern void resourceInfoReq(XDR *, struct sockaddr_in *, struct LSFHeader *, int);
+extern void showConfReq(struct sockaddr_in *, struct LSFHeader *);
 extern void masterRegister(XDR *, struct sockaddr_in *, struct LSFHeader *);
 extern void jobxferReq(XDR *, struct sockaddr_in *, struct LSFHeader *);
 extern void rcvConfInfo(XDR *, struct sockaddr_in *, struct LSFHeader *);
