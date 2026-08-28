@@ -22,7 +22,7 @@
 #include "../lsf.h"
 #include "../lim/limout.h"
 #include "../lib/lib.hdr.h"
-#include "../lib/lib.daemonInfo.h"
+#include "../lib/lib.daemoninfo.h"
 
 extern int optind;
 extern int initenv_(struct config_param *, char *);
@@ -64,8 +64,13 @@ limShowconf(int argc, char **argv)
         return showConfHost(localHost);
     }
 
-    /* "all" is limited to server hosts because client-only hosts run no LIM. */
-    if (optind == argc - 1 && strcmp(argv[optind], "all") == 0) {
+    /* "all" is a special host selector and takes precedence over host names. */
+    for (i = optind; i < argc; i++) {
+        if (strcmp(argv[i], "all") == 0)
+            break;
+    }
+    if (i < argc) {
+        /* Query server hosts only because client-only hosts run no LIM. */
         hostinfo = ls_gethostinfo("-:server", &numhosts, NULL, 0, LOCAL_ONLY);
         if (hostinfo == NULL) {
             ls_perror("ls_gethostinfo");

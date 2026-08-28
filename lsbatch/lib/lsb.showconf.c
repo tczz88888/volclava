@@ -3,12 +3,12 @@
  */
 
 #include "lsb.h"
-#include "../../lsf/lib/lib.daemonInfo.h"
+#include "../../lsf/lib/lib.daemoninfo.h"
 
 /*
- * Request showconf data from MBD or a host's SBD
- * MBD showconf is cluster-scoped and uses callmbd(); SBD showconf is
- * host-scoped and uses cmdCallSBD_().
+ * Request showconf data from a batch daemon.
+ * callmbd() routes MBD requests to QMBD when configured and falls back to MBD.
+ * SBD requests use the target host's command channel.
  * @param[in] daemon: SHOWCONF_MBD or SHOWCONF_SBD
  * @param[in] host: Target host for SHOWCONF_SBD; NULL for SHOWCONF_MBD
  * @param[out] reply: Decoded showconf reply; caller must free it with

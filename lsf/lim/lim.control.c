@@ -564,7 +564,6 @@ doReopen(void)
         lim_Exit(fname);
     }
 
-
     getLogClass_(limParams[LSF_DEBUG_LIM].paramValue,
                  limParams[LSF_TIME_LIM].paramValue);
     closelog();

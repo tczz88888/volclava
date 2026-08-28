@@ -3063,7 +3063,6 @@ ctrlMbdDebug(struct debugReq *pdebug,  struct lsfAuth *auth)
             return(lsb_CheckError);
         }
 
-
         getLogClass_(daemonParams[LSB_DEBUG_MBD].paramValue,
                      daemonParams[LSB_TIME_MBD].paramValue);
 

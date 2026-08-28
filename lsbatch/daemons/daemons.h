@@ -28,7 +28,7 @@
 #include "../lsbatch.h"
 #include "../../lsf/lib/lib.queue.h"
 #include "daemonout.h"
-#include "../../lsf/lib/lib.daemonInfo.h"
+#include "../../lsf/lib/lib.daemoninfo.h"
 
 
 #ifndef MIN

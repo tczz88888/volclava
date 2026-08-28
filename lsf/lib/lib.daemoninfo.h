@@ -23,7 +23,7 @@ struct showConfReply {
 extern int xdrShowConfReplySize(const struct showConfReply *);
 extern bool_t xdr_showConfReply(XDR *, struct showConfReply *,
                                 struct LSFHeader *);
-extern int initShowconfValues(struct config_param *);
+extern int initShowconfParams(struct config_param *);
 extern int makeShowConfReply(int, struct showConfReply *);
 extern void freeShowConfReply(struct showConfReply *);
 extern void printShowConfReply(const char *, const char *,

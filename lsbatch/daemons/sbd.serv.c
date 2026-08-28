@@ -1065,7 +1065,7 @@ ctrlSbdDebug( struct debugReq  *pdebug )
             die(SLAVE_FATAL);
             return (-1);
         }
-         
+
         getLogClass_(daemonParams[LSB_DEBUG_SBD].paramValue,
                      daemonParams[LSB_TIME_SBD].paramValue);
         closelog();

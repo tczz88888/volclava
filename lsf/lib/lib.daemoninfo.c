@@ -2,26 +2,17 @@
  * Copyright (C) 2021-2026 Bytedance Ltd. and/or its affiliates
  */
 #include "lib.h"
-#include "lib.daemonInfo.h"
-
-#define MAX_SHOWCONF_REQUIREMENTS 2
-
-struct showconf_requirement {
-    const char *paramName;
-    const char *paramValue;
-};
+#include "lib.daemoninfo.h"
 
 struct showconf_param {
     struct config_param paramInfo;
     int daemonMask;
-    struct showconf_requirement requirements[MAX_SHOWCONF_REQUIREMENTS];
 };
 
-/*
- * Static showconf catalog.
- * paramInfo.paramValue is the displayed fallback value. initShowconfValues()
- * overlays configured values onto this table after each daemon reads lsf.conf.
- * daemonMask controls which daemon's showconf output includes the parameter.
+/**
+ * Static showconf catalog and fallback values.
+ * initShowconfParams() captures configured values once during daemon startup.
+ * daemonMask controls which daemon displays each parameter.
  */
 static struct showconf_param showconfParams[] = {
     {{"LSB_CONFDIR", "LSF_CONFDIR/lsbatch"}, SHOWCONF_MBD | SHOWCONF_SBD},
@@ -39,17 +30,12 @@ static struct showconf_param showconfParams[] = {
     {{"LSB_MIG2PEND", "0"}, SHOWCONF_MBD},
     {{"LSB_MOD_ALL_JOBS", "N"}, SHOWCONF_MBD},
     {{"LSB_PACK_SKIP_ERROR", "N"}, SHOWCONF_MBD},
-    {{"LSB_QMBD_ALIVE_TIME", "5"}, SHOWCONF_MBD,
-     {{"LSB_QMBD_PORT", NULL}}},
-    {{"LSB_QMBD_MAX_TASK_NUM", "2000"}, SHOWCONF_MBD,
-     {{"LSB_QMBD_PORT", NULL}}},
+    {{"LSB_QMBD_ALIVE_TIME", "5"}, SHOWCONF_MBD},
+    {{"LSB_QMBD_MAX_TASK_NUM", "2000"}, SHOWCONF_MBD},
     {{"LSB_QMBD_PORT", "Undefined"}, SHOWCONF_MBD},
-    {{"LSB_QMBD_JOB_SYNC_MODE", "socket"}, SHOWCONF_MBD,
-     {{"LSB_QMBD_PORT", NULL}}},
-    {{"LSB_QMBD_SYNC_SHM_SIZE", "1024"}, SHOWCONF_MBD,
-     {{"LSB_QMBD_PORT", NULL}, {"LSB_QMBD_JOB_SYNC_MODE", "shm"}}},
-    {{"LSB_QMBD_THREAD_NUM", "online CPU cores"}, SHOWCONF_MBD,
-     {{"LSB_QMBD_PORT", NULL}}},
+    {{"LSB_QMBD_JOB_SYNC_MODE", "socket"}, SHOWCONF_MBD},
+    {{"LSB_QMBD_SYNC_SHM_SIZE", "1024"}, SHOWCONF_MBD},
+    {{"LSB_QMBD_THREAD_NUM", "online CPU cores"}, SHOWCONF_MBD},
     {{"LSB_REQUEUE_TO_BOTTOM", "0"}, SHOWCONF_MBD},
     {{"LSB_SBD_PORT", "6882"}, SHOWCONF_MBD | SHOWCONF_SBD},
     {{"LSB_SET_TMPDIR", "n"}, SHOWCONF_SBD},
@@ -81,11 +67,12 @@ static struct showconf_param showconfParams[] = {
 };
 
 static time_t showconfConfigTime = 0;
+static int showconfParamsInitialized = FALSE;
 
 static struct showconf_param *findShowconfParam(const char *);
 static int showconfParamIsVisible(const struct showconf_param *, int);
-
-/*
+static int copyParams(struct config_param *);
+/**
  * Find a showconf catalog entry by parameter name
  * @param[in] name: Configuration parameter name to look up
  * @return: Pointer to the matching table entry, or NULL if the name is not
@@ -107,41 +94,22 @@ findShowconfParam(const char *name)
     return NULL;
 }
 
-/*
- * Check whether a catalog entry applies to a daemon and its requirements.
- * A requirement without paramValue only requires the parameter to be set.
- * A requirement with paramValue also requires a case-insensitive value match.
+/**
+ * Check whether a param belongs to this daemon.
+ * @param[in] param: Parameter name to check.
+ * @param[in] daemonMask: Daemon mask to match against.
+ * @return TRUE if the param belongs to this daemon, FALSE otherwise.
  */
 static int
 showconfParamIsVisible(const struct showconf_param *param, int daemonMask)
 {
-    struct showconf_param *requiredParam;
-    int i;
-
     if (param == NULL || !(param->daemonMask & daemonMask))
         return FALSE;
-
-    for (i = 0; i < MAX_SHOWCONF_REQUIREMENTS; i++) {
-        if (param->requirements[i].paramName == NULL)
-            break;
-
-        requiredParam = findShowconfParam(param->requirements[i].paramName);
-        if (requiredParam == NULL
-            || requiredParam->paramInfo.paramValue == NULL
-            || requiredParam->paramInfo.paramValue[0] == '\0'
-            || strcmp(requiredParam->paramInfo.paramValue, "Undefined") == 0)
-            return FALSE;
-
-        if (param->requirements[i].paramValue != NULL
-            && strcasecmp(requiredParam->paramInfo.paramValue,
-                          param->requirements[i].paramValue) != 0)
-            return FALSE;
-    }
 
     return TRUE;
 }
 
-/*
+/**
  * XDR encode or decode one showconf name/value entry
  * @param[in,out] xdrs: XDR stream
  * @param[in,out] param: Parameter entry to transfer
@@ -160,11 +128,10 @@ xdr_showConfParam(XDR *xdrs, struct config_param *param,
     return TRUE;
 }
 
-/*
- * Estimate the encoded size of a showconf reply
- * The daemon callers allocate an exact response buffer before XDR encoding.
- * @param[in] reply: Reply to size; NULL returns the minimum header overhead
- * @return: Word-aligned encoded size in bytes
+/**
+ * Calculate a safe upper bound for an encoded showconf reply.
+ * @param[in] reply: Reply to size; NULL returns the minimum buffer size
+ * @return: Word-aligned buffer size in bytes
  */
 int
 xdrShowConfReplySize(const struct showConfReply *reply)
@@ -185,7 +152,7 @@ xdrShowConfReplySize(const struct showConfReply *reply)
     return ALIGNWORD_(size);
 }
 
-/*
+/**
  * XDR encode, decode, or free a showconf reply
  * @param[in,out] xdrs: XDR stream controlling ENCODE, DECODE, or FREE mode
  * @param[in,out] reply: Reply object to encode, populate, or free
@@ -197,8 +164,6 @@ xdr_showConfReply(XDR *xdrs, struct showConfReply *reply,
                   struct LSFHeader *hdr)
 {
     int i;
-    long configTime;
-
     if (xdrs->x_op == XDR_FREE) {
         if (reply != NULL) {
             if (reply->entries != NULL) {
@@ -224,20 +189,14 @@ xdr_showConfReply(XDR *xdrs, struct showConfReply *reply,
         reply->entryCount = 0;
     }
 
-    /* XDR carries time_t as the existing LSF long wire type. */
-    if (xdrs->x_op == XDR_ENCODE)
-        configTime = (long)reply->configTime;
-
-    if (!xdr_LSFlong(xdrs, &configTime))
+    if (!xdr_time_t(xdrs, &reply->configTime))
         return FALSE;
 
-    if (xdrs->x_op == XDR_DECODE)
-        reply->configTime = (time_t)configTime;
+    if (!xdr_int(xdrs, &reply->entryCount)) {
+        return FALSE;
+    }
 
     if (xdrs->x_op == XDR_DECODE) {
-        if (!xdr_int(xdrs, &reply->entryCount))
-            return FALSE;
-
         /* Reject suspicious counts before allocating the decoded array. */
         if (reply->entryCount < 0 || reply->entryCount > 10000)
             return FALSE;
@@ -252,8 +211,6 @@ xdr_showConfReply(XDR *xdrs, struct showConfReply *reply,
             reply->entryCount = 0;
             return FALSE;
         }
-    } else if (!xdr_int(xdrs, &reply->entryCount)) {
-        return FALSE;
     }
 
     /* xdr_showConfParam owns the per-entry name/value string transfer. */
@@ -277,50 +234,44 @@ xdr_showConfReply(XDR *xdrs, struct showConfReply *reply,
     return TRUE;
 }
 
-/*
- * Overlay configured daemon parameters onto the showconf catalog
- * The daemon parameter arrays contain only values read from lsf.conf or the
- * daemon environment. Parameters left unset keep the fallback value from
- * showconfParams.
+/**
+ * Capture the daemon's showconf snapshot on the first call.
+ * Generic and daemon values are copied in order; process LSF_ENVDIR is copied
+ * last. Later calls leave the initial snapshot unchanged.
  * @param[in] params: NULL-terminated daemon parameter array
- * @return: 0 on success
+ * @return: 0 on success, -1 on allocation failure
  */
 int
-initShowconfValues(struct config_param *params)
+initShowconfParams(struct config_param *params)
 {
-    struct showconf_param *showParam;
+    struct config_param envParams[2];
     char *envDir;
-    int i;
 
-    if (params != NULL) {
-        for (i = 0; params[i].paramName != NULL; i++) {
-            if (params[i].paramValue == NULL)
-                continue;
+    if (showconfParamsInitialized)
+        return 0;
 
-            /* Only tracked parameters override the display fallback. */
-            showParam = findShowconfParam(params[i].paramName);
-            if (showParam != NULL)
-                showParam->paramInfo.paramValue = params[i].paramValue;
-        }
-    }
+    if (copyParams(genParams_) < 0 || copyParams(params) < 0)
+        return -1;
 
     /* LSF_ENVDIR can come from the process environment rather than lsf.conf. */
     envDir = getenv("LSF_ENVDIR");
     if (envDir != NULL) {
-        showParam = findShowconfParam("LSF_ENVDIR");
-        if (showParam != NULL)
-            showParam->paramInfo.paramValue = envDir;
+        envParams[0].paramName = "LSF_ENVDIR";
+        envParams[0].paramValue = envDir;
+        envParams[1].paramName = NULL;
+        envParams[1].paramValue = NULL;
+        if (copyParams(envParams) < 0)
+            return -1;
     }
 
-    /* Preserve the first initialization time as the configuration timestamp. */
-    if (showconfConfigTime == 0)
-        showconfConfigTime = time(NULL);
+    showconfConfigTime = time(NULL);
+    showconfParamsInitialized = TRUE;
     return 0;
 }
 
-/*
- * Release strings owned by a showconf reply
- * @param[in,out] reply: Reply object previously filled by makeShowConfReply()
+/**
+ * Release strings owned by a locally built or decoded showconf reply.
+ * @param[in,out] reply: Reply object to clear
  */
 void
 freeShowConfReply(struct showConfReply *reply)
@@ -340,12 +291,12 @@ freeShowConfReply(struct showConfReply *reply)
     reply->entryCount = 0;
 }
 
-/*
+/**
  * Build a daemon-specific showconf reply
  * The caller owns reply->entries and must release it with freeShowConfReply().
  * @param[in] daemonMask: SHOWCONF_MBD, SHOWCONF_SBD, or SHOWCONF_LIM
  * @param[out] reply: Reply object populated with copied parameter names/values
- * @return: 0 on success, -1 on allocation or invalid-argument failure
+ * @return: 0 on success, -1 if reply is NULL or allocation fails
  */
 int
 makeShowConfReply(int daemonMask, struct showConfReply *reply)
@@ -397,7 +348,7 @@ makeShowConfReply(int daemonMask, struct showConfReply *reply)
     return 0;
 }
 
-/*
+/**
  * Print a decoded showconf reply in command output format
  * @param[in] daemonName: Display name such as "MBD", "SBD", or "LIM"
  * @param[in] host: Optional host name for host-scoped daemon output
@@ -435,4 +386,43 @@ printShowConfReply(const char *daemonName, const char *host,
                 reply->entries[i].paramValue ? reply->entries[i].paramValue : "");
     }
     fprintf(stdout, "\n");
+}
+
+/**
+ * Deep copy tracked values from params into showconfParams.
+ * @param[in] params: Source parameter array to copy from.
+ * @return: 0 on success, -1 on allocation failure.
+ */
+static int
+copyParams(struct config_param *params)
+{
+    static char *showconfOwnedValues[sizeof(showconfParams) /
+                                     sizeof(showconfParams[0])];
+    int i;
+    size_t index;
+    char *copy;
+    struct showconf_param *showParam;
+
+    if (params != NULL) {
+        for (i = 0; params[i].paramName != NULL; i++) {
+            if (params[i].paramValue == NULL)
+                continue;
+
+            /* Only tracked parameters override the display fallback. */
+            showParam = findShowconfParam(params[i].paramName);
+            if (showParam == NULL)
+                continue;
+
+            copy = putstr_(params[i].paramValue);
+            if (copy == NULL)
+                return -1;
+
+            index = showParam - showconfParams;
+            FREEUP(showconfOwnedValues[index]);
+            showconfOwnedValues[index] = copy;
+            showParam->paramInfo.paramValue = copy;
+        }
+    }
+
+    return 0;
 }

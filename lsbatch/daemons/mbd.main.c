@@ -206,6 +206,7 @@ static int qmbdIsAlive = 0;   /* Flag indicating if any query mbd process is ali
 static pid_t qmbdPid = 0;     /* PID corresponding to qmbd */
 static int processQmbd();
 static void initDaemonParams(void);
+static int setDaemonParamValue(int, const char *);
 
 /*
  * Validate and return a numeric parameter value within a specified range
@@ -439,8 +440,6 @@ main (int argc, char **argv)
     /* Go go go...
      */
     TIMEIT(0, minit(FIRST_START),"minit");
-    initShowconfValues(genParams_);
-    initShowconfValues(daemonParams);
     log_mbdStart();
     ls_syslog(LOG_INFO, "%s: (re-)started", __func__);
     pollSbatchds(FIRST_START);
@@ -665,9 +664,8 @@ clientIO()
 
 /*
  * Process a single client request
- * Reads the request from the client channel, decodes the XDR header,
- * authenticates the client, and dispatches the request to the appropriate
- * handler based on the opcode. May fork a child process for certain request types
+ * Reads and decodes a client request, applies its authentication policy, and
+ * dispatches it by opcode. Some request types are processed in a child.
  * @param[in] client: Pointer to the client node
  * @param[out] needFree: Set to TRUE if the client should be freed after processing
  * @return: 0 on success, -1 on failure
@@ -754,8 +752,7 @@ processClient(struct clientNode *client, int *needFree)
         goto endLoop;
     }
 
-    if (mbdReqtype != BATCH_SHOWCONF
-        && (cc = authRequest(&auth, &xdrs, &reqHdr, &from, &laddr,
+    if ((cc = authRequest(&auth, &xdrs, &reqHdr, &from, &laddr,
                              client->fromHost, chanSock_(s))) !=
         LSBE_NO_ERROR) {
         errorBack(s, cc, &from);
@@ -1146,9 +1143,9 @@ child_handler (int sig)
 
 
 /*
- * Authenticate an incoming client request
- * For write-type operations (submit, signal, queue control, etc.), verifies
- * the client's authentication credentials using LSF authentication mechanism
+ * Apply authentication policy to an incoming request.
+ * Protected request types decode credentials and enforce operation-specific
+ * checks; other request types pass through.
  * @param[in,out] auth: Pointer to lsfAuth structure to store authentication info
  * @param[in] xdrs: XDR stream for decoding the auth data
  * @param[in] reqHdr: Request header containing the operation code
@@ -1652,8 +1649,8 @@ initQmbdListenSock(void)
 static void
 initDaemonParams(void)
 {
-    int rc = 0;
-    char *tmp = NULL;
+    const char *undefined = "Undefined";
+    char value[32];
     if (isint_(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue))
         connTimeout = atoi(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue);
     else
@@ -1772,6 +1769,12 @@ initDaemonParams(void)
             if (lsb_CheckMode)
                 lsb_CheckError = WARNING_ERR;
         }
+        setDaemonParamValue(LSB_QMBD_PORT, undefined);
+        setDaemonParamValue(LSB_QMBD_ALIVE_TIME, undefined);
+        setDaemonParamValue(LSB_QMBD_THREAD_NUM, undefined);
+        setDaemonParamValue(LSB_QMBD_MAX_TASK_NUM, undefined);
+        setDaemonParamValue(LSB_QMBD_JOB_SYNC_MODE, undefined);
+        setDaemonParamValue(LSB_QMBD_SYNC_SHM_SIZE, undefined);
         return;
     }
 
@@ -1807,12 +1810,9 @@ initDaemonParams(void)
                       __func__, cpuCores, MAX_QMBD_THREAD_NUM, MAX_QMBD_THREAD_NUM);
             qmbdThreadNum = MAX_QMBD_THREAD_NUM;
         }
-        tmp = realloc(daemonParams[LSB_QMBD_THREAD_NUM].paramValue, 32);
-        if(tmp != NULL){
-            daemonParams[LSB_QMBD_THREAD_NUM].paramValue = tmp;
-            sprintf(daemonParams[LSB_QMBD_THREAD_NUM].paramValue, "%d", qmbdThreadNum);
-        }
     }
+    snprintf(value, sizeof(value), "%d", qmbdThreadNum);
+    setDaemonParamValue(LSB_QMBD_THREAD_NUM, value);
 
     if (daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue != NULL) {
         qmbdMaxTaskNum = getValidatedNumericParam(__func__,
@@ -1844,4 +1844,30 @@ initDaemonParams(void)
         if (lsb_CheckMode)
             lsb_CheckError = WARNING_ERR;
     }
+
+    if (qmbdJobSyncMode != QMBD_JOB_SYNC_SHM)
+        setDaemonParamValue(LSB_QMBD_SYNC_SHM_SIZE, undefined);
+}
+
+/*
+ * Replace a daemon parameter value without leaking the previous allocation.
+ * @return: 0 on success, -1 when the replacement cannot be allocated.
+ */
+static int
+setDaemonParamValue(int index, const char *value)
+{
+    char *copy;
+
+    copy = putstr_(value);
+    if (copy == NULL) {
+        ls_syslog(LOG_ERR, "%s: no memory for %s", __func__,
+                  daemonParams[index].paramName);
+        if (lsb_CheckMode)
+            lsb_CheckError = FATAL_ERR;
+        return -1;
+    }
+
+    FREEUP(daemonParams[index].paramValue);
+    daemonParams[index].paramValue = copy;
+    return 0;
 }

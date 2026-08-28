@@ -50,6 +50,8 @@
 .br
 \fBrestime\fR [\fB-l\fR \fItiming_level\fR] [\fB-f\fR \fIlogfile_name\fR] [\fB-o\fR] [\fIhost_name\fR]
 .br
+\fBshowconf lim\fR [\fIhost_name\fR ... | \fBall\fR]
+.br
 \fBhelp\fR [\fIsubcommand\fR ...]
 .br
 \fBquit
@@ -686,6 +688,16 @@ root.
 
 .IP
 See description of limtime for an explanation of options.
+
+.TP
+\fBshowconf lim\fR [\fIhost_name\fR ... | \fBall\fR]
+
+.IP
+Displays the configuration snapshot captured during LIM initialization on the
+selected hosts. Later dynamic configuration reloads do not update this
+snapshot. If no host is specified, the local host is used. Specify \fBall\fR
+to query every server host. Failed hosts are reported, remaining hosts are
+still queried, and the command returns a failure status.
 
 
 .TP 

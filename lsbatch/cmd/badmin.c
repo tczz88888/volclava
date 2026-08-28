@@ -532,8 +532,8 @@ badminDebug (int nargc, char *nargv[], int opCode)
 
 /*
  * Execute badmin showconf for batch daemons
- * showconf mbd queries the master batch daemon once; showconf sbd expands the
- * requested host list and queries each reachable SBD separately.
+ * showconf mbd sends one cluster-scoped request; showconf sbd queries each
+ * reachable SBD in the expanded host list.
  * @param[in] argc: Command argument count
  * @param[in] argv: Command argument vector
  * @return: 0 if all requested output succeeds, -1 on runtime failure,
@@ -576,14 +576,13 @@ badminShowconf(int argc, char *argv[])
         return -2;
 
     optind++;
-    if (optind >= argc)
-        return -2;
-
     numHosts = getNames(argc, argv, optind, &hosts, &all, "hostC");
-    if (!numHosts && !all)
-        return -2;
+
     requestedHosts = numHosts;
-    if (numHosts)
+    /* No operands select local; "all" is a special host selector. */
+    if (!numHosts && !all)
+        numHosts = 1;
+    else if (numHosts)
         hostPoint = hosts;
 
     /* Reuse batch host resolution so "all" and host aliases match badmin. */

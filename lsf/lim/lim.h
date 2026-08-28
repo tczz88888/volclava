@@ -31,7 +31,7 @@
 #include "../lib/lib.table.h"
 #include "../lib/lib.hdr.h"
 #include "../lib/lib.xdr.h"
-#include "../lib/lib.daemonInfo.h"
+#include "../lib/lib.daemoninfo.h"
 
 #define EXCHINTVL 	    15
 #define SAMPLINTVL           5

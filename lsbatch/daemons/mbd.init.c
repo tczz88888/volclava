@@ -352,6 +352,11 @@ minit(int mbdInitFlags)
 
     getMaxCpufactor();
 
+    if (!lsb_CheckMode && initShowconfParams(daemonParams) < 0) {
+        ls_syslog(LOG_ERR, "%s: initShowconfParams() failed", __func__);
+        mbdDie(MASTER_FATAL);
+    }
+
     return 0;
 }
 

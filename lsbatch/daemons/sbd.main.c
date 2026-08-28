@@ -361,8 +361,6 @@ main (int argc, char **argv)
     sigprocmask(SIG_SETMASK, NULL, &oldsigmask);
 
     sinit();
-    initShowconfValues(genParams_);
-    initShowconfValues(daemonParams);
     ls_syslog(LOG_INFO, (_i18n_msg_get(ls_catd , NL_SETN, 5041, "%s: (re-)started")), fname);        /* catgets 5041 */
 
 
@@ -964,6 +962,11 @@ sinit (void)
         die(SLAVE_FATAL);
     }
 
+    if (initShowconfParams(daemonParams) < 0) {
+        ls_syslog(LOG_ERR, "%s: initShowconfParams() failed", __func__);
+        die(SLAVE_FATAL);
+    }
+
 }
 
 void
@@ -1126,4 +1129,3 @@ isLSFAdmin(struct lsfAuth *auth)
     return(FALSE);
 
 }
-

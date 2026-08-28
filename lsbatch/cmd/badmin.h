@@ -23,7 +23,7 @@
 #include "cmd.h"
 #include "../../lsf/lsf.h"
 #include "../../lsf/intlib/intlibout.h"
-#include "../../lsf/lib/lib.daemonInfo.h"
+#include "../../lsf/lib/lib.daemoninfo.h"
  
 extern int bhc (int argc, char **argv, int opCode);
 extern int bqc (int argc, char **argv, int opCode);
@@ -123,7 +123,7 @@ static char *cmdSyntax[] =
   "[-C \"comments\"] [-v] [-f]",
   "[-c class_name] [-l debug_level] [-f logfile_name] [-o] [ host_name ...]",
   "[-l timing_level] [-f logfile_name] [-o] [ host_name ...]",
-  "mbd | sbd <host_name ... | all>",
+  "mbd | sbd [host_name ... | all]",
   "[ command ...]",
   "[ command ...]",
   "",                                                           

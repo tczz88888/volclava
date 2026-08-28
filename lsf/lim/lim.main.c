@@ -194,8 +194,10 @@ Reading configuration from %s/lsf.conf\n", env_dir);
 %s: initenv() failed reading lsf.conf from %s", __func__, env_dir);
         lim_Exit("main");
     }
-    initShowconfValues(genParams_);
-    initShowconfValues(limParams);
+    if (initShowconfParams(limParams) < 0) {
+        ls_syslog(LOG_ERR, "%s: initShowconfParams() failed", __func__);
+        lim_Exit("main");
+    }
 
     if (showTypeModel) {
         /* Print my type, model, architecture
