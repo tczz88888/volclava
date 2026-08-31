@@ -7,67 +7,68 @@
 struct showconf_param {
     struct config_param paramInfo;
     int daemonMask;
+    int needFree;
 };
 
 /**
  * Static showconf catalog and fallback values.
  * initShowconfParams() captures configured values once during daemon startup.
  * daemonMask controls which daemon displays each parameter.
+ * needFree marks values allocated by copyParams().
  */
 static struct showconf_param showconfParams[] = {
-    {{"LSB_CONFDIR", "LSF_CONFDIR/lsbatch"}, SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSB_DEBUG", "Undefined"}, SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSB_DEBUG_MBD", "Undefined"}, SHOWCONF_MBD},
-    {{"LSB_DEBUG_SBD", "Undefined"}, SHOWCONF_SBD},
-    {{"LSB_JOB_CPULIMIT", "Undefined"}, SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSB_JOB_MEMLIMIT", "Undefined"}, SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSB_MAILPROG", "/usr/lib/sendmail"}, SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSB_MAILSERVER", "Undefined"}, SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSB_MAILSIZE_LIMIT", "Undefined"}, SHOWCONF_SBD},
-    {{"LSB_MAILTO", "!U"}, SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSB_MBD_PORT", "6881"}, SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSB_MEMLIMIT_ENFORCE", "N"}, SHOWCONF_SBD},
-    {{"LSB_MIG2PEND", "0"}, SHOWCONF_MBD},
-    {{"LSB_MOD_ALL_JOBS", "N"}, SHOWCONF_MBD},
-    {{"LSB_PACK_SKIP_ERROR", "N"}, SHOWCONF_MBD},
-    {{"LSB_QMBD_ALIVE_TIME", "5"}, SHOWCONF_MBD},
-    {{"LSB_QMBD_MAX_TASK_NUM", "2000"}, SHOWCONF_MBD},
-    {{"LSB_QMBD_PORT", "Undefined"}, SHOWCONF_MBD},
-    {{"LSB_QMBD_JOB_SYNC_MODE", "socket"}, SHOWCONF_MBD},
-    {{"LSB_QMBD_SYNC_SHM_SIZE", "1024"}, SHOWCONF_MBD},
-    {{"LSB_QMBD_THREAD_NUM", "online CPU cores"}, SHOWCONF_MBD},
-    {{"LSB_REQUEUE_TO_BOTTOM", "0"}, SHOWCONF_MBD},
-    {{"LSB_SBD_PORT", "6882"}, SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSB_SET_TMPDIR", "n"}, SHOWCONF_SBD},
-    {{"LSB_SHAREDIR", "LSF_INDEP/work"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSB_SIGSTOP", "Undefined"}, SHOWCONF_SBD},
-    {{"LSB_TIME_MBD", "Undefined"}, SHOWCONF_MBD},
-    {{"LSB_TIME_SBD", "Undefined"}, SHOWCONF_SBD},
-    {{"LSF_API_CONNTIMEOUT", "5"}, SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSF_API_RECVTIMEOUT", "20"}, SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSF_AUTH", "eauth"}, SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSF_AUTH_DAEMONS", "Undefined"}, SHOWCONF_SBD},
-    {{"LSF_BINDIR", "LSF_MACHDEP/bin"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSF_CONF_RETRY_INT", "30"}, SHOWCONF_LIM},
-    {{"LSF_CONF_RETRY_MAX", "0"}, SHOWCONF_LIM},
-    {{"LSF_CONFDIR", "LSF_INDEP/conf"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSF_DEBUG_LIM", "Undefined"}, SHOWCONF_LIM},
-    {{"LSF_ENVDIR", "/etc"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSF_LIBDIR", "LSF_MACHDEP/lib"}, SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSF_LIM_DEBUG", "Undefined"}, SHOWCONF_LIM},
-    {{"LSF_LIM_PORT", "6879"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSF_LOG_MASK", "LOG_WARNING"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSF_LOGDIR", "syslog"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSF_MASTER_LIST", "Undefined"}, SHOWCONF_LIM},
-    {{"LSF_NON_PRIVILEGED_PORTS", "Y"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSF_RES_PORT", "6878"}, SHOWCONF_LIM},
-    {{"LSF_SERVERDIR", "Undefined"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD},
-    {{"LSF_UNIT_FOR_LIMITS", "MB"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD},
-    {{NULL, NULL}, 0}
+    {{"LSB_CONFDIR", "LSF_CONFDIR/lsbatch"}, SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSB_DEBUG", NULL}, SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSB_DEBUG_MBD", NULL}, SHOWCONF_MBD, FALSE},
+    {{"LSB_DEBUG_SBD", NULL}, SHOWCONF_SBD, FALSE},
+    {{"LSB_JOB_CPULIMIT", NULL}, SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSB_JOB_MEMLIMIT", NULL}, SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSB_MAILPROG", "/usr/lib/sendmail"}, SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSB_MAILSERVER", NULL}, SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSB_MAILSIZE_LIMIT", NULL}, SHOWCONF_SBD, FALSE},
+    {{"LSB_MAILTO", "!U"}, SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSB_MBD_PORT", "6881"}, SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSB_MEMLIMIT_ENFORCE", "N"}, SHOWCONF_SBD, FALSE},
+    {{"LSB_MIG2PEND", "0"}, SHOWCONF_MBD, FALSE},
+    {{"LSB_MOD_ALL_JOBS", "N"}, SHOWCONF_MBD, FALSE},
+    {{"LSB_PACK_SKIP_ERROR", "N"}, SHOWCONF_MBD, FALSE},
+    {{"LSB_QMBD_ALIVE_TIME", NULL}, SHOWCONF_MBD, FALSE},
+    {{"LSB_QMBD_MAX_TASK_NUM", NULL}, SHOWCONF_MBD, FALSE},
+    {{"LSB_QMBD_PORT", NULL}, SHOWCONF_MBD, FALSE},
+    {{"LSB_QMBD_JOB_SYNC_MODE", NULL}, SHOWCONF_MBD, FALSE},
+    {{"LSB_QMBD_SYNC_SHM_SIZE", NULL}, SHOWCONF_MBD, FALSE},
+    {{"LSB_QMBD_THREAD_NUM", NULL}, SHOWCONF_MBD, FALSE},
+    {{"LSB_REQUEUE_TO_BOTTOM", "0"}, SHOWCONF_MBD, FALSE},
+    {{"LSB_SBD_PORT", "6882"}, SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSB_SET_TMPDIR", "n"}, SHOWCONF_SBD, FALSE},
+    {{"LSB_SHAREDIR", "LSF_INDEP/work"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSB_SIGSTOP", NULL}, SHOWCONF_SBD, FALSE},
+    {{"LSB_TIME_MBD", NULL}, SHOWCONF_MBD, FALSE},
+    {{"LSB_TIME_SBD", NULL}, SHOWCONF_SBD, FALSE},
+    {{"LSF_API_CONNTIMEOUT", "5"}, SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSF_API_RECVTIMEOUT", "20"}, SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSF_AUTH", "eauth"}, SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSF_AUTH_DAEMONS", NULL}, SHOWCONF_SBD, FALSE},
+    {{"LSF_BINDIR", "LSF_MACHDEP/bin"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSF_CONF_RETRY_INT", "30"}, SHOWCONF_LIM, FALSE},
+    {{"LSF_CONF_RETRY_MAX", "0"}, SHOWCONF_LIM, FALSE},
+    {{"LSF_CONFDIR", "LSF_INDEP/conf"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSF_DEBUG_LIM", NULL}, SHOWCONF_LIM, FALSE},
+    {{"LSF_ENVDIR", "/etc"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSF_LIBDIR", "LSF_MACHDEP/lib"}, SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSF_LIM_DEBUG", NULL}, SHOWCONF_LIM, FALSE},
+    {{"LSF_LIM_PORT", "6879"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSF_LOG_MASK", "LOG_WARNING"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSF_LOGDIR", "syslog"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSF_MASTER_LIST", NULL}, SHOWCONF_LIM, FALSE},
+    {{"LSF_NON_PRIVILEGED_PORTS", "Y"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSF_RES_PORT", "6878"}, SHOWCONF_LIM, FALSE},
+    {{"LSF_SERVERDIR", NULL}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{"LSF_UNIT_FOR_LIMITS", "MB"}, SHOWCONF_LIM | SHOWCONF_MBD | SHOWCONF_SBD, FALSE},
+    {{NULL, NULL}, 0, FALSE}
 };
 
 static time_t showconfConfigTime = 0;
-static int showconfParamsInitialized = FALSE;
 
 static struct showconf_param *findShowconfParam(const char *);
 static int showconfParamIsVisible(const struct showconf_param *, int);
@@ -95,15 +96,16 @@ findShowconfParam(const char *name)
 }
 
 /**
- * Check whether a param belongs to this daemon.
- * @param[in] param: Parameter name to check.
+ * Check whether a defined parameter belongs to this daemon.
+ * @param[in] param: Parameter entry to check.
  * @param[in] daemonMask: Daemon mask to match against.
  * @return TRUE if the param belongs to this daemon, FALSE otherwise.
  */
 static int
 showconfParamIsVisible(const struct showconf_param *param, int daemonMask)
 {
-    if (param == NULL || !(param->daemonMask & daemonMask))
+    if (param == NULL || param->paramInfo.paramValue == NULL
+        || !(param->daemonMask & daemonMask))
         return FALSE;
 
     return TRUE;
@@ -235,20 +237,21 @@ xdr_showConfReply(XDR *xdrs, struct showConfReply *reply,
 }
 
 /**
- * Capture the daemon's showconf snapshot on the first call.
- * Generic and daemon values are copied in order; process LSF_ENVDIR is copied
- * last. Later calls leave the initial snapshot unchanged.
+ * Initialize showconf params only once.
  * @param[in] params: NULL-terminated daemon parameter array
  * @return: 0 on success, -1 on allocation failure
  */
 int
 initShowconfParams(struct config_param *params)
 {
+    static int first = TRUE;
     struct config_param envParams[2];
     char *envDir;
 
-    if (showconfParamsInitialized)
-        return 0;
+    if (!first){
+        ls_syslog(LOG_ERR, "%s: showconf params have been initialized", __func__);
+        return -1;
+    }
 
     if (copyParams(genParams_) < 0 || copyParams(params) < 0)
         return -1;
@@ -265,7 +268,7 @@ initShowconfParams(struct config_param *params)
     }
 
     showconfConfigTime = time(NULL);
-    showconfParamsInitialized = TRUE;
+    first = FALSE;
     return 0;
 }
 
@@ -335,8 +338,7 @@ makeShowConfReply(int daemonMask, struct showConfReply *reply)
         reply->entries[out].paramName =
             putstr_(showconfParams[i].paramInfo.paramName);
         reply->entries[out].paramValue =
-            putstr_(showconfParams[i].paramInfo.paramValue ?
-                    showconfParams[i].paramInfo.paramValue : "");
+            putstr_(showconfParams[i].paramInfo.paramValue);
         if (reply->entries[out].paramName == NULL
             || reply->entries[out].paramValue == NULL) {
             freeShowConfReply(reply);
@@ -377,10 +379,6 @@ printShowConfReply(const char *daemonName, const char *host,
         fprintf(stdout, "%s configuration at %s\n", daemonName, timeBuf);
 
     for (i = 0; i < reply->entryCount; i++) {
-        if (reply->entries[i].paramValue != NULL
-            && strcmp(reply->entries[i].paramValue, "Undefined") == 0)
-            continue;
-
         fprintf(stdout, "\t%s = %s\n",
                 reply->entries[i].paramName,
                 reply->entries[i].paramValue ? reply->entries[i].paramValue : "");
@@ -389,17 +387,14 @@ printShowConfReply(const char *daemonName, const char *host,
 }
 
 /**
- * Deep copy tracked values from params into showconfParams.
+ * Deep copy tracked values and release previously owned replacements.
  * @param[in] params: Source parameter array to copy from.
  * @return: 0 on success, -1 on allocation failure.
  */
 static int
 copyParams(struct config_param *params)
 {
-    static char *showconfOwnedValues[sizeof(showconfParams) /
-                                     sizeof(showconfParams[0])];
     int i;
-    size_t index;
     char *copy;
     struct showconf_param *showParam;
 
@@ -417,10 +412,10 @@ copyParams(struct config_param *params)
             if (copy == NULL)
                 return -1;
 
-            index = showParam - showconfParams;
-            FREEUP(showconfOwnedValues[index]);
-            showconfOwnedValues[index] = copy;
+            if (showParam->needFree)
+                FREEUP(showParam->paramInfo.paramValue);
             showParam->paramInfo.paramValue = copy;
+            showParam->needFree = TRUE;
         }
     }
 

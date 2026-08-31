@@ -1649,8 +1649,8 @@ initQmbdListenSock(void)
 static void
 initDaemonParams(void)
 {
-    const char *undefined = "Undefined";
     char value[32];
+
     if (isint_(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue))
         connTimeout = atoi(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue);
     else
@@ -1769,12 +1769,12 @@ initDaemonParams(void)
             if (lsb_CheckMode)
                 lsb_CheckError = WARNING_ERR;
         }
-        setDaemonParamValue(LSB_QMBD_PORT, undefined);
-        setDaemonParamValue(LSB_QMBD_ALIVE_TIME, undefined);
-        setDaemonParamValue(LSB_QMBD_THREAD_NUM, undefined);
-        setDaemonParamValue(LSB_QMBD_MAX_TASK_NUM, undefined);
-        setDaemonParamValue(LSB_QMBD_JOB_SYNC_MODE, undefined);
-        setDaemonParamValue(LSB_QMBD_SYNC_SHM_SIZE, undefined);
+        setDaemonParamValue(LSB_QMBD_PORT, NULL);
+        setDaemonParamValue(LSB_QMBD_ALIVE_TIME, NULL);
+        setDaemonParamValue(LSB_QMBD_THREAD_NUM, NULL);
+        setDaemonParamValue(LSB_QMBD_MAX_TASK_NUM, NULL);
+        setDaemonParamValue(LSB_QMBD_JOB_SYNC_MODE, NULL);
+        setDaemonParamValue(LSB_QMBD_SYNC_SHM_SIZE, NULL);
         return;
     }
 
@@ -1786,6 +1786,8 @@ initDaemonParams(void)
                                                  MAX_QMBD_ALIVE_TIME,
                                                  DEF_QMBD_ALIVE_TIME);
     }
+    snprintf(value, sizeof(value), "%d", qmbdAliveTime);
+    setDaemonParamValue(LSB_QMBD_ALIVE_TIME, value);
 
     if (daemonParams[LSB_QMBD_THREAD_NUM].paramValue != NULL) {
         qmbdThreadNum = getValidatedNumericParam(__func__,
@@ -1822,8 +1824,17 @@ initDaemonParams(void)
                                                   MAX_QMBD_MAX_TASK_NUM,
                                                   DEF_QMBD_MAX_TASK_NUM);
     }
+    snprintf(value, sizeof(value), "%d", qmbdMaxTaskNum);
+    setDaemonParamValue(LSB_QMBD_MAX_TASK_NUM, value);
 
     qmbdJobSyncMode = getQmbdJobSyncMode();
+    if (qmbdJobSyncMode == QMBD_JOB_SYNC_SHM)
+        setDaemonParamValue(LSB_QMBD_JOB_SYNC_MODE, "shm");
+    else if (qmbdJobSyncMode == QMBD_JOB_SYNC_SOCKET)
+        setDaemonParamValue(LSB_QMBD_JOB_SYNC_MODE, "socket");
+    else
+        setDaemonParamValue(LSB_QMBD_JOB_SYNC_MODE, "off");
+
     if (qmbdJobSyncMode == QMBD_JOB_SYNC_SHM) {
         if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
             syncShmSize = getValidatedNumericParam(__func__,
@@ -1833,6 +1844,8 @@ initDaemonParams(void)
                                                    MAX_QMBD_SYNC_SHM_SIZE_MB,
                                                    DEF_QMBD_SYNC_SHM_SIZE_MB);
         }
+        snprintf(value, sizeof(value), "%lld", syncShmSize);
+        setDaemonParamValue(LSB_QMBD_SYNC_SHM_SIZE, value);
         syncShmSize = syncShmSize * 1024 * 1024;
         syncShmJobCapacity = syncShmSize / 1024 / 10;
         syncShmJobNameBufferSize = syncShmSize / 8;
@@ -1846,22 +1859,20 @@ initDaemonParams(void)
     }
 
     if (qmbdJobSyncMode != QMBD_JOB_SYNC_SHM)
-        setDaemonParamValue(LSB_QMBD_SYNC_SHM_SIZE, undefined);
+        setDaemonParamValue(LSB_QMBD_SYNC_SHM_SIZE, NULL);
 }
 
 /*
- * Replace a daemon parameter value without leaking the previous allocation.
+ * Replace or clear a daemon parameter value without leaking its allocation.
  * @return: 0 on success, -1 when the replacement cannot be allocated.
  */
 static int
 setDaemonParamValue(int index, const char *value)
 {
-    char *copy;
+    char *copy = NULL;
 
-    copy = putstr_(value);
-    if (copy == NULL) {
-        ls_syslog(LOG_ERR, "%s: no memory for %s", __func__,
-                  daemonParams[index].paramName);
+    if (value != NULL && (copy = putstr_(value)) == NULL) {
+        ls_syslog(LOG_ERR, "%s failed :%m", __func__);
         if (lsb_CheckMode)
             lsb_CheckError = FATAL_ERR;
         return -1;
