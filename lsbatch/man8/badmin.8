@@ -48,6 +48,10 @@
 .br
 \fBhist\fR [\fB-t\fR \fItime0\fR,\fItime1\fR] [\fB-f\fR \fIlogfile_name\fR]
 .br
+\fBshowconf mbd\fR
+.br
+\fBshowconf sbd\fR [\fIhost_name\fR ... | \fBall\fR]
+.br
 \fBhelp\fR [\fIcommand\fR ...] | \fB?\fR [\fIcommand\fR ...]
 .br
 \fBquit\fR
@@ -486,6 +490,25 @@ qhist (see above).
 .IP
 Displays historical events for all the queues, hosts and MBD. Options 
 -t and -f are exactly the same as those of qhist (see above).
+
+.TP
+\fBshowconf mbd\fR
+
+.IP
+Displays the configuration snapshot captured during MBD initialization.
+Later dynamic configuration reloads do not update this snapshot. Undefined or
+inapplicable values are omitted.
+
+.TP
+\fBshowconf sbd\fR [\fIhost_name\fR ... | \fBall\fR]
+
+.IP
+Displays the configuration snapshot captured during SBD initialization on the
+selected hosts. Later dynamic configuration reloads do not update this
+snapshot. If no host is specified, the local host is used.
+Specify \fBall\fR to query every batch server host. Unreachable hosts are
+reported and cause the command to return a failure status after the remaining
+hosts have been processed.
 
 
 .TP 

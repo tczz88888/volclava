@@ -20,8 +20,6 @@
  */
 
 #include "lim.h"
-#include "../lib/lib.xdr.h"
-#include "../lib/lproto.h"
 
 #define NL_SETN 24
 
@@ -32,7 +30,6 @@ static int checkResources (struct resourceInfoReq *, struct resourceInfoReply *,
 static int copyResource (struct resourceInfoReply *,
                          struct sharedResource *, int *, char *);
 static void freeResourceInfoReply (struct resourceInfoReply *);
-
 
 void
 pingReq(XDR *xdrs, struct sockaddr_in *from, struct LSFHeader *reqHdr)
@@ -63,6 +60,67 @@ pingReq(XDR *xdrs, struct sockaddr_in *from, struct LSFHeader *reqHdr)
     xdr_destroy(&xdrs2);
     return;
 
+}
+
+/*
+ * Handle an lsadmin showconf lim request
+ * LIM replies over UDP, so the full showconf reply is encoded into a single
+ * datagram buffer before chanSendDgram_() sends it back to the requester.
+ * @param[in] from: Client UDP address to send the reply to
+ * @param[in] reqHdr: Decoded request header; refCode is echoed in the reply
+ */
+void
+showConfReq(struct sockaddr_in *from, struct LSFHeader *reqHdr)
+{
+    static char fname[] = "showConfReq()";
+    struct showConfReply reply;
+    struct LSFHeader replyHdr;
+    enum limReplyCode limReplyCode;
+    char *buf;
+    int bufSize;
+    XDR xdrs2;
+
+    memset(&reply, 0, sizeof(reply));
+    limReplyCode = LIME_NO_ERR;
+    if (makeShowConfReply(SHOWCONF_LIM, &reply) < 0)
+        limReplyCode = LIME_NO_MEM;
+
+    /* Error replies carry only an LSF header; success replies carry entries. */
+    bufSize = (limReplyCode == LIME_NO_ERR) ? xdrShowConfReplySize(&reply)
+                                            : LSF_HEADER_LEN;
+    buf = malloc(bufSize);
+    if (buf == NULL) {
+        freeShowConfReply(&reply, TRUE);
+        errorBack(from, reqHdr, LIME_NO_MEM, -1);
+        return;
+    }
+
+    initLSFHeader_(&replyHdr);
+    replyHdr.opCode = (short)limReplyCode;
+    replyHdr.refCode = reqHdr->refCode;
+
+    /* Keep the payload absent when the header already reports failure. */
+    xdrmem_create(&xdrs2, buf, bufSize, XDR_ENCODE);
+    if (!xdr_encodeMsg(&xdrs2,
+                       (limReplyCode == LIME_NO_ERR) ? (char *)&reply : NULL,
+                       &replyHdr,
+                       (limReplyCode == LIME_NO_ERR) ? xdr_showConfReply : NULL,
+                       0,
+                       NULL)) {
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
+        xdr_destroy(&xdrs2);
+        freeShowConfReply(&reply, TRUE);
+        FREEUP(buf);
+        return;
+    }
+
+    if (chanSendDgram_(limSock, buf, XDR_GETPOS(&xdrs2), from) < 0)
+        ls_syslog(LOG_ERR, I18N_FUNC_D_FAIL_M, fname, "chanSendDgram_",
+                  XDR_GETPOS(&xdrs2));
+
+    xdr_destroy(&xdrs2);
+    freeShowConfReply(&reply, TRUE);
+    FREEUP(buf);
 }
 
 void
@@ -937,4 +995,3 @@ freeResourceInfoReply (struct resourceInfoReply *reply)
     }
     FREEUP (reply->resources);
 }
-

@@ -23,6 +23,7 @@
 #include "cmd.h"
 #include "../../lsf/lsf.h"
 #include "../../lsf/intlib/intlibout.h"
+#include "../../lsf/lib/lib.daemoninfo.h"
  
 extern int bhc (int argc, char **argv, int opCode);
 extern int bqc (int argc, char **argv, int opCode);
@@ -46,7 +47,7 @@ static int opCodeList[] = {  0, 0, QUEUE_OPEN, QUEUE_CLOSED, QUEUE_ACTIVATE,
                              HOST_CLOSE, HOST_REBOOT, HOST_SHUTDOWN, 0,  
                              HOST_HIST, MBD_HIST, SYS_HIST, MBD_DEBUG, 
 			     MBD_TIMING, 0, SBD_DEBUG, SBD_TIMING,  
-			     0, 0, 0 }; 
+			     0, 0, 0, 0 };
 
 static char *cmdList[] = { 
 #define BADMIN_RECONFIG  0
@@ -89,11 +90,13 @@ static char *cmdList[] = {
 			   "sbddebug",
 #define BADMIN_SBDTIME  19
 			   "sbdtime",
-#define BADMIN_HELP     20 
+#define BADMIN_SHOWCONF 20
+			   "showconf",
+#define BADMIN_HELP     21
 		           "help",
-#define BADMIN_QES      21
+#define BADMIN_QES      22
 		           "?",
-#define BADMIN_QUIT     22
+#define BADMIN_QUIT     23
 		           "quit",
                             NULL
 		         };
@@ -120,6 +123,7 @@ static char *cmdSyntax[] =
   "[-C \"comments\"] [-v] [-f]",
   "[-c class_name] [-l debug_level] [-f logfile_name] [-o] [ host_name ...]",
   "[-l timing_level] [-f logfile_name] [-o] [ host_name ...]",
+  "mbd | sbd [host_name ... | all]",
   "[ command ...]",
   "[ command ...]",
   "",                                                           
@@ -150,6 +154,7 @@ static char *cmdInfo[] = {
 	"Restart a new mbatchd",	/* catgets 3122 */
         "Debug slave batch daemon",	/* catgets 3118 */
         "Timing slave batch daemon",	/* catgets 3119 */
+        "Display daemon configuration",
         "Get help on commands",		/* catgets 3120 */
         "Get help on commands",		/* catgets 3120 */
         "Quit",				/* catgets 3121 */
@@ -160,6 +165,6 @@ static char *cmdInfo[] = {
 static int cmdInfo_ID[] = { 
 	3101, 3102, 3103, 3104, 3105, 3106, 3107, 3108, 3109, 3110, 
 	3111, 3112, 3113, 3114, 3115, 3116, 3117, 3122,
-	3118, 3119, 3120, 3120, 3121
+	3118, 3119, 3123, 3120, 3120, 3121
 };
 #endif

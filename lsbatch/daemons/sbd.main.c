@@ -670,6 +670,11 @@ processMsg(struct clientNode *client)
 	TIMEIT(2, do_sbdDebug(&xdrs, client->chanfd, &reqHdr), "do_sbdDebug");
 	break;
 
+    case CMD_SBD_SHOWCONF:
+        TIMEIT(2, do_showConfReq(client->chanfd, &reqHdr),
+               "do_showConfReq");
+        break;
+
 
     case BATCH_JOB_MSG:
 	NEW_BUCKET(bucket,buf);
@@ -950,6 +955,11 @@ sinit (void)
         die(SLAVE_FATAL);
     }
 
+    if (initShowconfParams(daemonParams) < 0) {
+        ls_syslog(LOG_ERR, "%s: initShowconfParams() failed", __func__);
+        die(SLAVE_FATAL);
+    }
+
 }
 
 void
@@ -1112,5 +1122,3 @@ isLSFAdmin(struct lsfAuth *auth)
     return(FALSE);
 
 }
-
-

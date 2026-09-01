@@ -131,6 +131,71 @@ mergeQmbdSyncReply(int reply, int syncReply)
     return reply;
 }
 
+/*
+ * Handle a badmin showconf mbd request
+ * Build the MBD-visible showconf parameter list, encode it on the daemon
+ * client channel, and return the daemon-side LSBE_* status in the reply header.
+ * @param[in] chfd: Connected client channel
+ * @param[in] reqHdr: Decoded request header
+ * @return: 0 on success, -1 if encoding or channel write fails
+ */
+int
+do_showConfReq(int chfd, struct LSFHeader *reqHdr)
+{
+    static char fname[] = "do_showConfReq";
+    struct showConfReply reply;
+    struct LSFHeader replyHdr;
+    char *reply_buf;
+    int bufSize;
+    XDR xdrs2;
+    int rc = LSBE_NO_ERROR;
+
+    memset(&reply, 0, sizeof(reply));
+    if (makeShowConfReply(SHOWCONF_MBD, &reply) < 0)
+        rc = LSBE_NO_MEM;
+
+    /* Error replies carry only an LSF header; success replies carry entries. */
+    bufSize = (rc == LSBE_NO_ERROR) ? xdrShowConfReplySize(&reply)
+                                    : LSF_HEADER_LEN;
+    reply_buf = malloc(bufSize);
+    if (reply_buf == NULL) {
+        freeShowConfReply(&reply, TRUE);
+        return -1;
+    }
+
+    initLSFHeader_(&replyHdr);
+    replyHdr.opCode = rc;
+
+    /* Keep the payload absent when the header already reports failure. */
+    xdrmem_create(&xdrs2, reply_buf, bufSize, XDR_ENCODE);
+    if (!xdr_encodeMsg(&xdrs2,
+                       (rc == LSBE_NO_ERROR) ? (char *)&reply : NULL,
+                       &replyHdr,
+                       (rc == LSBE_NO_ERROR) ? xdr_showConfReply : NULL,
+                       0,
+                       NULL)) {
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
+        xdr_destroy(&xdrs2);
+        freeShowConfReply(&reply, TRUE);
+        FREEUP(reply_buf);
+        return -1;
+    }
+
+    if (chanWrite_(chfd, reply_buf, XDR_GETPOS(&xdrs2)) <= 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_D_FAIL_M, fname, "chanWrite_",
+                  XDR_GETPOS(&xdrs2));
+        xdr_destroy(&xdrs2);
+        freeShowConfReply(&reply, TRUE);
+        FREEUP(reply_buf);
+        return -1;
+    }
+
+    xdr_destroy(&xdrs2);
+    freeShowConfReply(&reply, TRUE);
+    FREEUP(reply_buf);
+    return 0;
+}
+
 int
 do_submitReq(XDR *xdrs,
              int chfd,
@@ -2997,7 +3062,6 @@ ctrlMbdDebug(struct debugReq *pdebug,  struct lsfAuth *auth)
                 lsb_CheckError = FATAL_ERR;
             return(lsb_CheckError);
         }
-
 
         getLogClass_(daemonParams[LSB_DEBUG_MBD].paramValue,
                      daemonParams[LSB_TIME_MBD].paramValue);

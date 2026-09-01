@@ -205,6 +205,7 @@ static int qmbdIsAlive = 0;   /* Flag indicating if any query mbd process is ali
 static pid_t qmbdPid = 0;     /* PID corresponding to qmbd */
 static int processQmbd();
 static void initDaemonParams(void);
+static int setDaemonParamValue(int, const char *);
 
 /*
  * Validate and return a numeric parameter value within a specified range
@@ -662,9 +663,8 @@ clientIO()
 
 /*
  * Process a single client request
- * Reads the request from the client channel, decodes the XDR header,
- * authenticates the client, and dispatches the request to the appropriate
- * handler based on the opcode. May fork a child process for certain request types
+ * Reads and decodes a client request, applies its authentication policy, and
+ * dispatches it by opcode. Some request types are processed in a child.
  * @param[in] client: Pointer to the client node
  * @param[out] needFree: Set to TRUE if the client should be freed after processing
  * @return: 0 on success, -1 on failure
@@ -752,7 +752,7 @@ processClient(struct clientNode *client, int *needFree)
     }
 
     if ((cc = authRequest(&auth, &xdrs, &reqHdr, &from, &laddr,
-                          client->fromHost, chanSock_(s))) !=
+                             client->fromHost, chanSock_(s))) !=
         LSBE_NO_ERROR) {
         errorBack(s, cc, &from);
         goto endLoop;
@@ -775,6 +775,11 @@ processClient(struct clientNode *client, int *needFree)
     }
 
     switch (mbdReqtype) {
+
+        case BATCH_SHOWCONF:
+            TIMEIT(0, do_showConfReq(s, &reqHdr),
+                   "do_showConfReq()");
+            break;
 
         case PREPARE_FOR_OP:
             if (do_readyOp(&xdrs, client->chanfd, &from, &reqHdr) < 0) {
@@ -1137,9 +1142,9 @@ child_handler (int sig)
 
 
 /*
- * Authenticate an incoming client request
- * For write-type operations (submit, signal, queue control, etc.), verifies
- * the client's authentication credentials using LSF authentication mechanism
+ * Apply authentication policy to an incoming request.
+ * Protected request types decode credentials and enforce operation-specific
+ * checks; other request types pass through.
  * @param[in,out] auth: Pointer to lsfAuth structure to store authentication info
  * @param[in] xdrs: XDR stream for decoding the auth data
  * @param[in] reqHdr: Request header containing the operation code
@@ -1643,6 +1648,8 @@ initQmbdListenSock(void)
 static void
 initDaemonParams(void)
 {
+    char value[32];
+
     if (isint_(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue))
         connTimeout = atoi(daemonParams[LSB_MBD_CONNTIMEOUT].paramValue);
     else
@@ -1756,6 +1763,12 @@ initDaemonParams(void)
             if (lsb_CheckMode)
                 lsb_CheckError = WARNING_ERR;
         }
+        setDaemonParamValue(LSB_QMBD_PORT, NULL);
+        setDaemonParamValue(LSB_QMBD_ALIVE_TIME, NULL);
+        setDaemonParamValue(LSB_QMBD_THREAD_NUM, NULL);
+        setDaemonParamValue(LSB_QMBD_MAX_TASK_NUM, NULL);
+        setDaemonParamValue(LSB_QMBD_JOB_SYNC_MODE, NULL);
+        setDaemonParamValue(LSB_QMBD_SYNC_SHM_SIZE, NULL);
         return;
     }
 
@@ -1767,6 +1780,8 @@ initDaemonParams(void)
                                                  MAX_QMBD_ALIVE_TIME,
                                                  DEF_QMBD_ALIVE_TIME);
     }
+    snprintf(value, sizeof(value), "%d", qmbdAliveTime);
+    setDaemonParamValue(LSB_QMBD_ALIVE_TIME, value);
 
     if (daemonParams[LSB_QMBD_THREAD_NUM].paramValue != NULL) {
         qmbdThreadNum = getValidatedNumericParam(__func__,
@@ -1792,6 +1807,8 @@ initDaemonParams(void)
             qmbdThreadNum = MAX_QMBD_THREAD_NUM;
         }
     }
+    snprintf(value, sizeof(value), "%d", qmbdThreadNum);
+    setDaemonParamValue(LSB_QMBD_THREAD_NUM, value);
 
     if (daemonParams[LSB_QMBD_MAX_TASK_NUM].paramValue != NULL) {
         qmbdMaxTaskNum = getValidatedNumericParam(__func__,
@@ -1801,8 +1818,17 @@ initDaemonParams(void)
                                                   MAX_QMBD_MAX_TASK_NUM,
                                                   DEF_QMBD_MAX_TASK_NUM);
     }
+    snprintf(value, sizeof(value), "%d", qmbdMaxTaskNum);
+    setDaemonParamValue(LSB_QMBD_MAX_TASK_NUM, value);
 
     qmbdJobSyncMode = getQmbdJobSyncMode();
+    if (qmbdJobSyncMode == QMBD_JOB_SYNC_SHM)
+        setDaemonParamValue(LSB_QMBD_JOB_SYNC_MODE, "shm");
+    else if (qmbdJobSyncMode == QMBD_JOB_SYNC_SOCKET)
+        setDaemonParamValue(LSB_QMBD_JOB_SYNC_MODE, "socket");
+    else
+        setDaemonParamValue(LSB_QMBD_JOB_SYNC_MODE, "off");
+
     if (qmbdJobSyncMode == QMBD_JOB_SYNC_SHM) {
         if (daemonParams[LSB_QMBD_SYNC_SHM_SIZE].paramValue != NULL) {
             syncShmSize = getValidatedNumericParam(__func__,
@@ -1812,6 +1838,8 @@ initDaemonParams(void)
                                                    MAX_QMBD_SYNC_SHM_SIZE_MB,
                                                    DEF_QMBD_SYNC_SHM_SIZE_MB);
         }
+        snprintf(value, sizeof(value), "%lld", syncShmSize);
+        setDaemonParamValue(LSB_QMBD_SYNC_SHM_SIZE, value);
         syncShmSize = syncShmSize * 1024 * 1024;
         syncShmJobCapacity = syncShmSize / 1024 / 10;
         syncShmJobNameBufferSize = syncShmSize / 8;
@@ -1823,4 +1851,28 @@ initDaemonParams(void)
         if (lsb_CheckMode)
             lsb_CheckError = WARNING_ERR;
     }
+
+    if (qmbdJobSyncMode != QMBD_JOB_SYNC_SHM)
+        setDaemonParamValue(LSB_QMBD_SYNC_SHM_SIZE, NULL);
+}
+
+/*
+ * Replace or clear a daemon parameter value without leaking its allocation.
+ * @return: 0 on success, -1 when the replacement cannot be allocated.
+ */
+static int
+setDaemonParamValue(int index, const char *value)
+{
+    char *copy = NULL;
+
+    if (value != NULL && (copy = putstr_(value)) == NULL) {
+        ls_syslog(LOG_ERR, "%s failed :%m", __func__);
+        if (lsb_CheckMode)
+            lsb_CheckError = FATAL_ERR;
+        return -1;
+    }
+
+    FREEUP(daemonParams[index].paramValue);
+    daemonParams[index].paramValue = copy;
+    return 0;
 }

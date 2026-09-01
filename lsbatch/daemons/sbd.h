@@ -239,6 +239,7 @@ extern void do_jobSyslog(XDR *xdrs, int s, struct LSFHeader *);
 extern void do_jobMsg(struct bucket *, XDR *, int s, struct LSFHeader *);
 extern void do_rmConn(XDR *, int, struct LSFHeader *, struct clientNode *);
 extern void do_lsbMsg(XDR *, int s, struct LSFHeader *);
+extern void do_showConfReq(int, struct LSFHeader *);
 extern void deliverMsg(struct bucket *);
 
 extern void getJobsState(struct sbdPackage *sbdPackage);
@@ -333,5 +334,4 @@ extern int sbdread_jobstatus (struct jobCard *jp);
 extern int sbdCheckUnreportedStatus();
 extern void exeActCmd(struct jobCard *jp, char *actCmd, char *exitFile);
 extern void exeChkpnt(struct jobCard *jp, int chkFlags, char *exitFile);
-
 

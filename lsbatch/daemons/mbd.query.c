@@ -391,16 +391,31 @@ alarmHandler(int sig){
 }
 
 /*
- * Executes client requests in threads
- * Calls corresponding request handlers based on opcode, releases resources, and updates client state
+ * Process one QMBD request in a worker thread.
+ * Apply authentication policy, dispatch by opcode, and release request state.
  * @param[in] arg: Pointer to RequestContext storing request details
  */
 static void* processRequest(void* arg) {
     int                  ret = 0;
-    socklen_t            laddrLen = 0;
     struct sockaddr_in   laddr;
+    socklen_t            laddrLen = sizeof(laddr);
     struct lsfAuth       auth;
     struct requestContext* reqContext = (struct requestContext*)arg;
+    if (getsockname(chanSock_(reqContext->client->chanfd),
+                        (struct sockaddr *) &laddr,
+                        &laddrLen) == -1) {
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, __func__, "getsockname");
+        errorBack(reqContext->client->chanfd, LSBE_PROTOCOL, &reqContext->client->from);
+        ret = -1;
+        goto cleanup;
+    }
+    if ((ret = authRequest(&auth, reqContext->xdr, &reqContext->reqHdr, &reqContext->client->from, &laddr,
+                        reqContext->client->fromHost, chanSock_(reqContext->client->chanfd))) !=
+        LSBE_NO_ERROR) {
+        errorBack(reqContext->client->chanfd, ret, &reqContext->client->from);
+        ret = -1;
+        goto cleanup;
+    }
     if(reqContext->reqHdr.opCode == BATCH_JOB_INFO){
         ret = do_jobInfoReq(reqContext->xdr, reqContext->client->chanfd, &reqContext->client->from, &reqContext->reqHdr,reqContext->schedule);
     }else{
@@ -428,27 +443,15 @@ static void* processRequest(void* arg) {
             case BATCH_RESOURCE_INFO:
                 ret = do_resourceInfoReq(reqContext->xdr, reqContext->client->chanfd, &reqContext->client->from, &reqContext->reqHdr);
                 break;
-            
-            case BATCH_JOB_PEEK:
-                if (getsockname(chanSock_(reqContext->client->chanfd),
-                        (struct sockaddr *) &laddr,
-                        &laddrLen) == -1) {
-                    ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, __func__, "getsockname");
-                    errorBack(reqContext->client->chanfd, LSBE_PROTOCOL, &reqContext->client->from);
-                    ret = -1;
-                    break;
-                }
 
-                if ((ret = authRequest(&auth, reqContext->xdr, &reqContext->reqHdr, &reqContext->client->from, &laddr,
-                                    reqContext->client->fromHost, chanSock_(reqContext->client->chanfd))) !=
-                    LSBE_NO_ERROR) {
-                    errorBack(reqContext->client->chanfd, ret, &reqContext->client->from);
-                    ret = -1;
-                    break;
-                }
+            case BATCH_JOB_PEEK:
                 ret = do_jobPeekReq(reqContext->xdr, reqContext->client->chanfd, &reqContext->client->from, reqContext->client->fromHost, &reqContext->reqHdr, &auth);
                 break;
-                
+
+            case BATCH_SHOWCONF:
+                ret = do_showConfReq(reqContext->client->chanfd, &reqContext->reqHdr);
+                break;
+
             default:
                 errorBack(reqContext->client->chanfd, LSBE_PROTOCOL, &reqContext->client->from);
                 ls_syslog(LOG_ERR, "%s: Unknown request type %d from host %s",
@@ -464,6 +467,7 @@ static void* processRequest(void* arg) {
         }
     }
     
+cleanup:
     xdr_destroy(reqContext->xdr);
     FREEUP(reqContext->xdr);
     chanFreeBuf_(reqContext->buf);

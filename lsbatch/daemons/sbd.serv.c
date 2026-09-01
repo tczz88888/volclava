@@ -40,6 +40,65 @@ extern int sbdlog_newstatus (struct jobCard *jp);
 extern int lsbJobCpuLimit;
 extern int lsbJobMemLimit;
 
+/*
+ * Handle a badmin showconf sbd request
+ * Build the SBD-visible showconf parameter list and write it back on the
+ * already connected SBD command channel.
+ * @param[in] chfd: Connected client channel
+ * @param[in] reqHdr: Decoded request header; refCode is echoed in the reply
+ */
+void
+do_showConfReq(int chfd, struct LSFHeader *reqHdr)
+{
+    static char fname[] = "do_showConfReq";
+    struct showConfReply reply;
+    struct LSFHeader replyHdr;
+    char *reply_buf;
+    int bufSize;
+    XDR xdrs2;
+    int rc = LSBE_NO_ERROR;
+
+    memset(&reply, 0, sizeof(reply));
+    if (makeShowConfReply(SHOWCONF_SBD, &reply) < 0)
+        rc = LSBE_NO_MEM;
+
+    /* Error replies carry only an LSF header; success replies carry entries. */
+    bufSize = (rc == LSBE_NO_ERROR) ? xdrShowConfReplySize(&reply)
+                                    : LSF_HEADER_LEN;
+    reply_buf = malloc(bufSize);
+    if (reply_buf == NULL) {
+        freeShowConfReply(&reply, TRUE);
+        return;
+    }
+
+    initLSFHeader_(&replyHdr);
+    replyHdr.opCode = rc;
+    replyHdr.refCode = reqHdr->refCode;
+
+    /* Keep the payload absent when the header already reports failure. */
+    xdrmem_create(&xdrs2, reply_buf, bufSize, XDR_ENCODE);
+    if (!xdr_encodeMsg(&xdrs2,
+                       (rc == LSBE_NO_ERROR) ? (char *)&reply : NULL,
+                       &replyHdr,
+                       (rc == LSBE_NO_ERROR) ? xdr_showConfReply : NULL,
+                       0,
+                       NULL)) {
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
+        xdr_destroy(&xdrs2);
+        freeShowConfReply(&reply, TRUE);
+        FREEUP(reply_buf);
+        return;
+    }
+
+    if (chanWrite_(chfd, reply_buf, XDR_GETPOS(&xdrs2)) <= 0)
+        ls_syslog(LOG_ERR, I18N_FUNC_D_FAIL_M, fname, "chanWrite_",
+                  XDR_GETPOS(&xdrs2));
+
+    xdr_destroy(&xdrs2);
+    freeShowConfReply(&reply, TRUE);
+    FREEUP(reply_buf);
+}
+
 void 
 do_newjob(XDR *xdrs, int chfd, struct LSFHeader *reqHdr)
 {
@@ -1006,7 +1065,7 @@ ctrlSbdDebug( struct debugReq  *pdebug )
             die(SLAVE_FATAL);
             return (-1);
         }
-         
+
         getLogClass_(daemonParams[LSB_DEBUG_SBD].paramValue,
                      daemonParams[LSB_TIME_SBD].paramValue);
         closelog();

@@ -26,10 +26,12 @@ extern char *myGetOpt (int nargc, char **nargv, char *ostr);
 extern int checkConf (int, int);
 extern int getConfirm (char *msg);
 extern int lsb_debugReq(struct debugReq *pdebug , char *host);
+extern int lsb_showconf(int, char *, struct showConfReply *);
 extern int linux_optind;
 extern int linux_opterr;
 static int doBatchCmd (int argc, char *argv[]);
 static int badminDebug (int nargc, char *nargv[], int opCode);
+static int badminShowconf(int argc, char *argv[]);
 
 #define NL_SETN 8
 
@@ -135,6 +137,9 @@ doBatchCmd (int argc, char *argv[])
         case BADMIN_SBDDEBUG:
         case BADMIN_SBDTIME:
             cmdRet = badminDebug(argc, argv, opCodeList[myIndex]);
+            break;
+        case BADMIN_SHOWCONF:
+            cmdRet = badminShowconf(argc, argv);
             break;
 
         case BADMIN_HELP :
@@ -525,3 +530,111 @@ badminDebug (int nargc, char *nargv[], int opCode)
 
 }
 
+/*
+ * Execute badmin showconf for batch daemons
+ * showconf mbd sends one cluster-scoped request; showconf sbd queries each
+ * reachable SBD in the expanded host list.
+ * @param[in] argc: Command argument count
+ * @param[in] argv: Command argument vector
+ * @return: 0 if all requested output succeeds, -1 on runtime failure,
+ *          -2 on usage error
+ */
+static int
+badminShowconf(int argc, char *argv[])
+{
+    struct showConfReply reply;
+    struct hostInfoEnt *hostInfo;
+    char **hosts = NULL;
+    char **hostPoint = NULL;
+    int all = FALSE;
+    int numHosts = 0;
+    int requestedHosts = 0;
+    int i;
+    int retCode = 0;
+
+    if (optind >= argc)
+        return -2;
+
+    /* MBD output is cluster-scoped and does not accept host operands. */
+    if (strcmp(argv[optind], "mbd") == 0) {
+        optind++;
+        if (optind != argc)
+            return -2;
+
+        memset(&reply, 0, sizeof(reply));
+        if (lsb_showconf(SHOWCONF_MBD, NULL, &reply) < 0) {
+            lsb_perror("showconf mbd");
+            return -1;
+        }
+
+        printShowConfReply("MBD", NULL, &reply);
+        freeShowConfReply(&reply, FALSE);
+        return 0;
+    }
+
+    if (strcmp(argv[optind], "sbd") != 0)
+        return -2;
+
+    optind++;
+    numHosts = getNames(argc, argv, optind, &hosts, &all, "hostC");
+
+    requestedHosts = numHosts;
+    /* No operands select local; "all" is a special host selector. */
+    if (!numHosts && !all)
+        numHosts = 1;
+    else if (numHosts)
+        hostPoint = hosts;
+
+    /* Reuse batch host resolution so "all" and host aliases match badmin. */
+    if ((hostInfo = lsb_hostinfo(hostPoint, &numHosts)) == NULL) {
+        if (hostPoint != NULL && lsberrno == LSBE_BAD_HOST
+            && numHosts >= 0 && numHosts < requestedHosts) {
+            char msg[MAXLINELEN];
+
+            snprintf(msg, sizeof(msg), "showconf sbd <%s>",
+                     hostPoint[numHosts]);
+            lsb_perror(msg);
+        } else {
+            lsb_perror("showconf sbd");
+        }
+        return -1;
+    }
+
+    for (i = 0; i < numHosts; i++) {
+        /* Do not send SBD requests to synthetic or currently unreachable hosts. */
+        if (strcmp(hostInfo[i].host, "lost_and_found") == 0) {
+            if (!all)
+                fprintf(stderr, "%s.\n",
+                        _i18n_msg_get(ls_catd, NL_SETN, 2568,
+                                      "<lost_and_found> is not a real host, ignored"));
+            continue;
+        }
+
+        if (hostInfo[i].hStatus & (HOST_STAT_UNAVAIL | HOST_STAT_UNREACH)) {
+            if (hostInfo[i].hStatus & HOST_STAT_UNAVAIL)
+                fprintf(stderr, I18N(2578,
+                        "failed : LSF daemon (LIM) is unavailable on host %s\n"),
+                        hostInfo[i].host);
+            else
+                fprintf(stderr, I18N(2579,
+                        "failed : Slave batch daemon (sbatchd) is unreachable now on host %s\n"),
+                        hostInfo[i].host);
+            retCode = -1;
+            continue;
+        }
+
+        memset(&reply, 0, sizeof(reply));
+        if (lsb_showconf(SHOWCONF_SBD, hostInfo[i].host, &reply) < 0) {
+            char msg[MAXLINELEN];
+            snprintf(msg, sizeof(msg), "showconf sbd <%s>", hostInfo[i].host);
+            lsb_perror(msg);
+            retCode = -1;
+            continue;
+        }
+
+        printShowConfReply("SBD", hostInfo[i].host, &reply);
+        freeShowConfReply(&reply, FALSE);
+    }
+
+    return retCode;
+}

@@ -27,6 +27,7 @@
 #include "../lib/lproto.h"
 
 extern int limCtrl(int argc, char **argv, int opCode);
+extern int limShowconf(int argc, char **argv);
 extern int limLock(int argc, char **argv);
 extern int limUnlock(int argc, char **argv);
 extern int resCtrl(int argc, char **argv, int opCode);
@@ -63,6 +64,7 @@ extern int optind;
 #define LSADM_LIMTIME    13 
 #define LSADM_RESDEBUG   14 
 #define LSADM_RESTIME    15 
-#define LSADM_HELP       16
-#define LSADM_QES        17
-#define LSADM_QUIT       18
+#define LSADM_SHOWCONF   16
+#define LSADM_HELP       17
+#define LSADM_QES        18
+#define LSADM_QUIT       19

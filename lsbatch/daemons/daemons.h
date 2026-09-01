@@ -28,6 +28,8 @@
 #include "../lsbatch.h"
 #include "../../lsf/lib/lib.queue.h"
 #include "daemonout.h"
+#include "../../lsf/lib/lib.daemoninfo.h"
+
 
 #ifndef MIN
 #define MIN(x,y)        ((x) < (y) ? (x) : (y))
@@ -483,6 +485,7 @@ extern int errno;
 extern char **environ;
 
 extern struct config_param daemonParams[];
+extern struct config_param genParams_[];
 
 extern int nextJobId;
 extern int numRemoveJobs;
