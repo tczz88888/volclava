@@ -25,7 +25,7 @@ extern bool_t xdr_showConfReply(XDR *, struct showConfReply *,
                                 struct LSFHeader *);
 extern int initShowconfParams(struct config_param *);
 extern int makeShowConfReply(int, struct showConfReply *);
-extern void freeShowConfReply(struct showConfReply *);
+extern void freeShowConfReply(struct showConfReply *, int);
 extern void printShowConfReply(const char *, const char *,
                                const struct showConfReply *);
 

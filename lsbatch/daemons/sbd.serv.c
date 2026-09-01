@@ -67,7 +67,7 @@ do_showConfReq(int chfd, struct LSFHeader *reqHdr)
                                     : LSF_HEADER_LEN;
     reply_buf = malloc(bufSize);
     if (reply_buf == NULL) {
-        freeShowConfReply(&reply);
+        freeShowConfReply(&reply, TRUE);
         return;
     }
 
@@ -85,7 +85,7 @@ do_showConfReq(int chfd, struct LSFHeader *reqHdr)
                        NULL)) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
         xdr_destroy(&xdrs2);
-        freeShowConfReply(&reply);
+        freeShowConfReply(&reply, TRUE);
         FREEUP(reply_buf);
         return;
     }
@@ -95,7 +95,7 @@ do_showConfReq(int chfd, struct LSFHeader *reqHdr)
                   XDR_GETPOS(&xdrs2));
 
     xdr_destroy(&xdrs2);
-    freeShowConfReply(&reply);
+    freeShowConfReply(&reply, TRUE);
     FREEUP(reply_buf);
 }
 

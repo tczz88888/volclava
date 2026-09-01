@@ -12,7 +12,7 @@
  * @param[in] daemon: SHOWCONF_MBD or SHOWCONF_SBD
  * @param[in] host: Target host for SHOWCONF_SBD; NULL for SHOWCONF_MBD
  * @param[out] reply: Decoded showconf reply; caller must free it with
- *                    freeShowConfReply()
+ *                    freeShowConfReply(reply, FALSE)
  * @return: 0 on success, -1 on validation, transport, or decode failure
  */
 int
@@ -74,7 +74,7 @@ lsb_showconf(int daemon, char *host, struct showConfReply *reply)
     xdrmem_create(&xdrs, reply_buf, XDR_DECODE_SIZE_(cc), XDR_DECODE);
     if (!xdr_showConfReply(&xdrs, reply, &hdr)) {
         xdr_destroy(&xdrs);
-        freeShowConfReply(reply);
+        freeShowConfReply(reply, FALSE);
         if (cc)
             FREEUP(reply_buf);
         lsberrno = LSBE_XDR;

@@ -90,7 +90,7 @@ showConfReq(struct sockaddr_in *from, struct LSFHeader *reqHdr)
                                             : LSF_HEADER_LEN;
     buf = malloc(bufSize);
     if (buf == NULL) {
-        freeShowConfReply(&reply);
+        freeShowConfReply(&reply, TRUE);
         errorBack(from, reqHdr, LIME_NO_MEM, -1);
         return;
     }
@@ -109,7 +109,7 @@ showConfReq(struct sockaddr_in *from, struct LSFHeader *reqHdr)
                        NULL)) {
         ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "xdr_encodeMsg");
         xdr_destroy(&xdrs2);
-        freeShowConfReply(&reply);
+        freeShowConfReply(&reply, TRUE);
         FREEUP(buf);
         return;
     }
@@ -119,7 +119,7 @@ showConfReq(struct sockaddr_in *from, struct LSFHeader *reqHdr)
                   XDR_GETPOS(&xdrs2));
 
     xdr_destroy(&xdrs2);
-    freeShowConfReply(&reply);
+    freeShowConfReply(&reply, TRUE);
     FREEUP(buf);
 }
 

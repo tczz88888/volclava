@@ -113,11 +113,11 @@ showConfHost(char *host)
                  host, 0, &hdr) < 0) {
         snprintf(msg, sizeof(msg), "showconf lim <%s>", host);
         ls_perror(msg);
-        freeShowConfReply(&reply);
+        freeShowConfReply(&reply, FALSE);
         return -1;
     }
 
     printShowConfReply("LIM", host, &reply);
-    freeShowConfReply(&reply);
+    freeShowConfReply(&reply, FALSE);
     return 0;
 }

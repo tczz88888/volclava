@@ -273,11 +273,13 @@ initShowconfParams(struct config_param *params)
 }
 
 /**
- * Release strings owned by a locally built or decoded showconf reply.
+ * Release a locally built or decoded showconf reply.
  * @param[in,out] reply: Reply object to clear
+ * @param[in] isDaemon: TRUE when entry strings are borrowed from the daemon's
+ *                      showconf table; FALSE when XDR allocated the strings
  */
 void
-freeShowConfReply(struct showConfReply *reply)
+freeShowConfReply(struct showConfReply *reply, int isDaemon)
 {
     int i;
 
@@ -285,9 +287,11 @@ freeShowConfReply(struct showConfReply *reply)
         return;
 
     if (reply->entries != NULL) {
-        for (i = 0; i < reply->entryCount; i++) {
-            FREEUP(reply->entries[i].paramName);
-            FREEUP(reply->entries[i].paramValue);
+        if (!isDaemon) {
+            for (i = 0; i < reply->entryCount; i++) {
+                FREEUP(reply->entries[i].paramName);
+                FREEUP(reply->entries[i].paramValue);
+            }
         }
         FREEUP(reply->entries);
     }
@@ -296,9 +300,10 @@ freeShowConfReply(struct showConfReply *reply)
 
 /**
  * Build a daemon-specific showconf reply
- * The caller owns reply->entries and must release it with freeShowConfReply().
+ * The caller owns reply->entries and must release it with
+ * freeShowConfReply(reply, TRUE). Entry strings borrow the showconf table.
  * @param[in] daemonMask: SHOWCONF_MBD, SHOWCONF_SBD, or SHOWCONF_LIM
- * @param[out] reply: Reply object populated with copied parameter names/values
+ * @param[out] reply: Reply object populated with borrowed parameter names/values
  * @return: 0 on success, -1 if reply is NULL or allocation fails
  */
 int
@@ -330,18 +335,18 @@ makeShowConfReply(int daemonMask, struct showConfReply *reply)
         return -1;
     }
 
-    /* Copy strings because the receiver and XDR free path own the reply. */
+    /* Borrow immutable daemon snapshot strings until the reply is encoded. */
     for (i = 0; showconfParams[i].paramInfo.paramName != NULL; i++) {
         if (!showconfParamIsVisible(&showconfParams[i], daemonMask))
             continue;
 
         reply->entries[out].paramName =
-            putstr_(showconfParams[i].paramInfo.paramName);
+            showconfParams[i].paramInfo.paramName;
         reply->entries[out].paramValue =
-            putstr_(showconfParams[i].paramInfo.paramValue);
+            showconfParams[i].paramInfo.paramValue;
         if (reply->entries[out].paramName == NULL
             || reply->entries[out].paramValue == NULL) {
-            freeShowConfReply(reply);
+            freeShowConfReply(reply, TRUE);
             return -1;
         }
         out++;

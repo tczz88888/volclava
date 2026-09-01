@@ -568,7 +568,7 @@ badminShowconf(int argc, char *argv[])
         }
 
         printShowConfReply("MBD", NULL, &reply);
-        freeShowConfReply(&reply);
+        freeShowConfReply(&reply, FALSE);
         return 0;
     }
 
@@ -633,7 +633,7 @@ badminShowconf(int argc, char *argv[])
         }
 
         printShowConfReply("SBD", hostInfo[i].host, &reply);
-        freeShowConfReply(&reply);
+        freeShowConfReply(&reply, FALSE);
     }
 
     return retCode;
