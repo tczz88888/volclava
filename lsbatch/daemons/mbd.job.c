@@ -8250,7 +8250,12 @@ initSubmitReq(struct submitReq *jobBill)
     jobBill->restartPid = 0;
     jobBill->nxf = 0;
     jobBill->submitTime = 0;
-    jobBill->umask = umask(0077);
+    /*
+     * The old code, jobBill->umask = umask(0077), silently changed the
+     * daemon's umask: files created afterwards (e.g. a recreated mbatchd
+     * log) ended up 0600 instead of the expected 0644.
+     */
+    umask(jobBill->umask = umask(0077));
     jobBill->niosPort = 0;
     jobBill->maxNumProcessors = 1;
     jobBill->userPriority = -1;
