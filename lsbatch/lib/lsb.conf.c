@@ -23,6 +23,7 @@
 #include <grp.h>
 #include <netdb.h>
 #include <ctype.h>
+#include <errno.h>
 #include "lsb.h"
 #include "lsb.sig.h"
 #include "../../lsf/intlib/intlibout.h"
@@ -427,6 +428,8 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
         {"RUN_TIME_FACTOR", NULL, 0},
         {"RUN_JOB_FACTOR", NULL, 0},
         {"HIST_HOURS", NULL, 0},
+        {"JOB_CWD_TTL", NULL, 0},           /* 44 */
+        {"DEFAULT_JOB_CWD", NULL, 0},       /* 45 */
         {NULL, NULL, 0}
 
     };
@@ -743,6 +746,33 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                 } else {
                     pConf->param->histHours = value;
                 }
+            } else if (i == 45) {
+                pConf->param->defaultJobCwd = putstr_(keylist[i].val);
+                if (pConf->param->defaultJobCwd == NULL) {
+                    ls_syslog(LOG_ERR, I18N_FUNC_D_FAIL_M, pname,
+                              "malloc", strlen(keylist[i].val)+1);
+                    lsberrno = LSBE_NO_MEM;
+                    freekeyval (keylist);
+                    return (FALSE);
+                }
+            } else if (i == 44) {
+                char *endp = NULL;
+                long value;
+
+                /* Parse and bounds-check 0..INFINIT_INT explicitly instead
+                 * of relying on atoi() overflow behaviour, which is
+                 * implementation-defined past INT_MAX. */
+                errno = 0;
+                value = strtol(keylist[i].val, &endp, 10);
+                if (errno != 0 || endp == keylist[i].val ||
+                    *endp != '\0' || value < 0 || value > INFINIT_INT) {
+                    ls_syslog(LOG_ERR, "%s: %s must be a non-negative integer between 0 and %d; ignored",
+                              pname, keylist[i].key, INFINIT_INT);
+                    lsberrno = LSBE_CONF_WARNING;
+                } else {
+                    pConf->param->jobCwdTtl = (int)value;
+                    pConf->param->jobCwdTtlSet = TRUE;
+                }
             } else if (i > 5) {
                 if ( i < 23 || i > 36)
                     value = my_atoi(keylist[i].val, INFINIT_INT, 0);
@@ -935,6 +965,9 @@ initParameterInfo(struct parameterInfo *param)
         param->runTimeFactor = INFINIT_FLOAT;
         param->runJobFactor = INFINIT_FLOAT;
         param->histHours = INFINIT_FLOAT;
+        param->jobCwdTtl = INFINIT_INT;
+        param->jobCwdTtlSet = FALSE;
+        param->defaultJobCwd = NULL;
     }
 }
 
@@ -946,6 +979,7 @@ freeParameterInfo(struct parameterInfo *param)
         FREEUP(param->defaultHostSpec);
         FREEUP(param->defaultProject);
         FREEUP(param->pjobSpoolDir);
+        FREEUP(param->defaultJobCwd);
     }
 }
 

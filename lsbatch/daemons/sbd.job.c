@@ -21,6 +21,9 @@
 #include <time.h>
 #include <stdlib.h>
 #include <sys/types.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/file.h>
 
 #include <dirent.h>
 #include <stdio.h>
@@ -368,6 +371,10 @@ execJob(struct jobCard *jobCardPtr, int chfd)
         || jobSpecsPtr->lsfLimits[LSF_RLIMIT_FSIZE].rlim_curh != 0x7fffffff)
         ls_closelog_ext();
 
+    /* Create and register the dynamic CWD for TTL cleanup while we are still
+     * root; setIds() below permanently drops to the job user. */
+    cwdTrackCreate(jobCardPtr);
+
     if (setIds(jobCardPtr) < 0) {
         jobSetupStatus(JOB_STAT_PEND, PEND_JOB_EXEC_INIT, jobCardPtr);
     }
@@ -383,8 +390,12 @@ execJob(struct jobCard *jobCardPtr, int chfd)
         jobSetupStatus(JOB_STAT_PEND, PEND_JOB_EXEC_INIT, jobCardPtr);
     }
 
-    if (initPaths(jobCardPtr, fromHp, &jf) < 0) {
-        jobSetupStatus(JOB_STAT_PEND, PEND_JOB_PATHS, jobCardPtr);
+    {
+        int pathRc = initPaths(jobCardPtr, fromHp, &jf);
+        if (pathRc == -2)
+            exit(2);
+        if (pathRc < 0)
+            jobSetupStatus(JOB_STAT_PEND, PEND_JOB_PATHS, jobCardPtr);
     }
 
     for (i = 1; i < NSIG; i++)
@@ -856,13 +867,19 @@ setJobEnv(struct jobCard *jp)
     sprintf(val, "%d", (int)getpid());
     putEnv("LS_JOBPID", val);
 
-    if (isAbsolutePathSub(jp, jp->jobSpecs.cwd)) {
-        putEnv("LS_SUBCWD", jp->jobSpecs.cwd);
-    } else {
+    /* LS_SUBCWD is the submission directory (where bsub was run), not the
+     * execution cwd.  submitCwd follows the same home-prefix-stripped
+     * convention as cwd (absolute, relative-to-home, or empty for home). */
+    if (isAbsolutePathSub(jp, jp->jobSpecs.submitCwd)) {
+        putEnv("LS_SUBCWD", jp->jobSpecs.submitCwd);
+    } else if (jp->jobSpecs.submitCwd[0] != '\0') {
         char cwd[MAXFILENAMELEN];
 
-        sprintf(cwd, "%s/%s", jp->jobSpecs.subHomeDir, jp->jobSpecs.cwd);
+        sprintf(cwd, "%s/%s", jp->jobSpecs.subHomeDir,
+                jp->jobSpecs.submitCwd);
         putEnv("LS_SUBCWD", cwd);
+    } else {
+        putEnv("LS_SUBCWD", jp->jobSpecs.subHomeDir);
     }
 
     putEnv("LSB_SUB_HOST", jp->jobSpecs.fromHost);
@@ -2613,6 +2630,10 @@ deallocJobCard(struct jobCard *jobCard)
 {
     static char fname[] = "deallocJobCard()";
     char fileBuf[MAXFILENAMELEN];
+
+    if ((jobCard->jobSpecs.options2 & SUB2_JOB_CWD_PATTERN) &&
+        jobCwdTtl != INFINIT_INT)
+        cwdTrackMarkFinished(jobCard->jobSpecs.jobId);
 
     sprintf(fileBuf, "%s/.%s.%s.fail", LSTMPDIR, jobCard->jobSpecs.jobFile,
             lsb_jobidinstr(jobCard->jobSpecs.jobId));
@@ -4446,12 +4467,8 @@ void saveJobRusage2File(struct jobCard *jp) {
     }
 
     snprintf(dir, MAXPATHLEN, "%s/.%s.sbd", LSTMPDIR, clusterName);
-    if (access(dir, F_OK) != 0) {
-        if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
-            ls_syslog(LOG_ERR, "saveJobRusage2File: failed to create directory %s: %m", dir);
-            return;
-        }
-    }
+    if (ensureSbdDir(dir) != 0)
+        return;
 
     idx = LSB_ARRAY_IDX(jp->jobSpecs.jobId);
     if (idx == 0) {
@@ -4557,6 +4574,8 @@ void cleanOldJobRusageFiles() {
     if (clusterName == NULL) return;
 
     snprintf(dirPath, MAXPATHLEN, "%s/.%s.sbd", LSTMPDIR, clusterName);
+    if (ensureSbdDir(dirPath) != 0)
+        return;
     dir = opendir(dirPath);
     if (dir == NULL) {
         return;
@@ -4599,4 +4618,1027 @@ void cleanOldJobRusageFiles() {
         }
     }
     closedir(dir);
+}
+
+/*
+ * ensureSbdDir - make sure "dir" (LSTMPDIR/.<cluster>.sbd) exists and is safe
+ * for root to create fixed-name state files (cwdlist, jobstatus.*,
+ * jobrusage.*) in.  dir sits in world-writable LSTMPDIR (normally /tmp), so
+ * an attacker can pre-plant a symlink there and redirect root's open()/fopen()
+ * into a directory of their choosing.
+ *
+ * lstat() -- not stat(), which would follow the link -- plus S_ISDIR and
+ * st_uid==0 reject both a symlink and a directory the submitter owns.
+ * Creation uses mkdir() under umask(0) rather than a follow-up chmod(),
+ * because chmod() would follow a planted symlink.
+ *
+ * Returns 0 if dir is (or becomes) a root-owned directory, -1 after logging
+ * otherwise.
+ */
+int
+ensureSbdDir(const char *dir)
+{
+    struct stat st;
+    mode_t oldMask;
+
+    if (lstat(dir, &st) == 0) {
+        if (!S_ISDIR(st.st_mode) || st.st_uid != 0) {
+            ls_syslog(LOG_ERR, "ensureSbdDir: refusing unsafe %s "
+                      "(mode 0%o, uid %d)", dir, st.st_mode & 07777,
+                      (int)st.st_uid);
+            return -1;
+        }
+        return 0;
+    }
+
+    if (errno != ENOENT) {
+        ls_syslog(LOG_ERR, "ensureSbdDir: lstat(%s) failed: %m", dir);
+        return -1;
+    }
+
+    oldMask = umask(0);
+    if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
+        ls_syslog(LOG_ERR, "ensureSbdDir: mkdir(%s) failed: %m", dir);
+        (void) umask(oldMask);
+        return -1;
+    }
+    (void) umask(oldMask);
+
+    /* Re-check after a fresh creation or a concurrent EEXIST. */
+    if (lstat(dir, &st) != 0) {
+        ls_syslog(LOG_ERR, "ensureSbdDir: lstat(%s) failed: %m", dir);
+        return -1;
+    }
+    if (!S_ISDIR(st.st_mode) || st.st_uid != 0) {
+        ls_syslog(LOG_ERR, "ensureSbdDir: refusing unsafe %s "
+                  "(mode 0%o, uid %d)", dir, st.st_mode & 07777,
+                  (int)st.st_uid);
+        return -1;
+    }
+    return 0;
+}
+
+static void
+getCwdListPath(char *buf, int bufLen)
+{
+    snprintf(buf, bufLen, "%s/.%s.sbd/cwdlist", LSTMPDIR, clusterName);
+}
+
+/*
+ * Acquire an exclusive flock() on the cwdlist lock file so that the
+ * append in cwdTrackAdd and the read+tmp+rename in
+ * cwdTrackMarkFinished/cwdCleanupExpired are serialized across processes.
+ * Returns a file descriptor holding the lock, or -1 on error.
+ */
+static int
+cwdListLock(void)
+{
+    char dir[MAXPATHLEN];
+    char lockPath[MAXPATHLEN];
+    int fd;
+
+    /* cwdListLock() only ever runs as root; the directory is created
+     * elsewhere (rusage/jobstatus) but not guaranteed to exist before the
+     * first tracked job after a clean /tmp.  ensureSbdDir() creates it and
+     * rejects a symlink planted at its path. */
+    snprintf(dir, sizeof(dir), "%s/.%s.sbd", LSTMPDIR, clusterName);
+    if (ensureSbdDir(dir) != 0)
+        return -1;
+
+    snprintf(lockPath, sizeof(lockPath), "%s/.%s.sbd/cwdlist.lock",
+             LSTMPDIR, clusterName);
+
+    fd = open(lockPath, O_CREAT | O_RDWR, 0600);
+    if (fd < 0) {
+        ls_syslog(LOG_ERR, "cwdListLock: cannot open %s: %m", lockPath);
+        return -1;
+    }
+    if (flock(fd, LOCK_EX) < 0) {
+        ls_syslog(LOG_ERR, "cwdListLock: flock(%s) failed: %m", lockPath);
+        close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+/*
+ * Open cwdlist or its replacement for writing while holding cwdListLock().
+ * execJob() applies the submitter's umask before cwdTrackCreate(), whereas
+ * sbatchd uses 022.  Enforce 0644 independently of the caller's umask and
+ * normalize existing files too.  Never create a group/other-writable file.
+ * Use the fd rather than chmod(path), and refuse a symlink at the final
+ * component.  If permissions cannot be enforced, fail without writing
+ * records; callers must not replace cwdlist with that temporary file.
+ */
+static FILE *
+cwdListOpenWrite(const char *path, int append)
+{
+    int fd;
+    int savedErrno;
+    FILE *fp;
+
+    fd = open(path, O_WRONLY | O_CREAT | O_NOFOLLOW |
+              (append ? O_APPEND : O_TRUNC), 0644);
+    if (fd < 0)
+        return NULL;
+
+    if (fchmod(fd, 0644) < 0) {
+        savedErrno = errno;
+        ls_syslog(LOG_ERR, "cwdListOpenWrite: fchmod(%s, 0644) failed: %m",
+                  path);
+        close(fd);
+        errno = savedErrno;
+        return NULL;
+    }
+
+    fp = fdopen(fd, append ? "a" : "w");
+    if (fp == NULL) {
+        savedErrno = errno;
+        close(fd);
+        errno = savedErrno;
+    }
+    return fp;
+}
+
+/*
+ * Parse one cwdlist record:
+ *   "<pathLen> <path> <jobId> <finishTime> <ttl> [<dev> <ino>]\n".
+ * The path is length-prefixed so it may contain spaces. All fields are
+ * read with bounds checks to avoid overrunning the output buffers.
+ * Records written before directory identity tracking carry no dev/ino;
+ * hasIdentity is then left 0.  Returns 0 on success, -1 on a malformed
+ * line.
+ */
+static int
+cwdParseLine(char *line, char *path, int pathSize,
+             char *jobId, int jobIdSize, time_t *finish, int *ttl,
+             dev_t *dev, ino_t *ino, int *hasIdentity)
+{
+    char *p = line;
+    long pathLen;
+    char *sp;
+    int len;
+
+    pathLen = strtol(p, &p, 10);
+    if (p == line || pathLen < 0 || pathLen >= pathSize)
+        return -1;
+    if (*p != ' ')
+        return -1;
+    p++;
+
+    if ((int)strlen(p) <= pathLen)
+        return -1;
+    memcpy(path, p, pathLen);
+    path[pathLen] = '\0';
+    p += pathLen;
+    if (*p != ' ')
+        return -1;
+    p++;
+
+    sp = strchr(p, ' ');
+    if (sp == NULL || (len = sp - p) >= jobIdSize)
+        return -1;
+    memcpy(jobId, p, len);
+    jobId[len] = '\0';
+    p = sp + 1;
+
+    *finish = (time_t)strtol(p, &p, 10);
+    if (*p != ' ')
+        return -1;
+    p++;
+
+    *ttl = (int)strtol(p, &p, 10);
+
+    /* Optional identity fields appended by newer records. */
+    if (*p == ' ' && p[1] != '\0') {
+        p++;
+        *dev = (dev_t)strtoull(p, &p, 10);
+        if (*p != ' ')
+            return -1;
+        p++;
+        *ino = (ino_t)strtoull(p, NULL, 10);
+        *hasIdentity = 1;
+    } else {
+        *dev = 0;
+        *ino = 0;
+        *hasIdentity = 0;
+    }
+    return 0;
+}
+
+/*
+ * Write one cwdlist record.  Records with a directory identity keep the
+ * longer dev/ino format; legacy records without identity keep the old
+ * short format.
+ */
+static void
+cwdWriteLine(FILE *fp, const char *path, const char *jobId, time_t finish,
+             int ttl, dev_t dev, ino_t ino, int hasIdentity)
+{
+    if (hasIdentity)
+        fprintf(fp, "%d %s %s %ld %d %llu %llu\n",
+                (int)strlen(path), path, jobId, (long)finish, ttl,
+                (unsigned long long)dev, (unsigned long long)ino);
+    else
+        fprintf(fp, "%d %s %s %ld %d\n",
+                (int)strlen(path), path, jobId, (long)finish, ttl);
+}
+
+/*
+ * cwdPendingT - a CWD queued for deletion while the cwdlist lock was held;
+ * the actual tree removal runs after the lock is released.
+ */
+typedef struct {
+    char    *path;
+    char    *jobId;
+    dev_t   dev;
+    ino_t   ino;
+    int     hasIdentity;
+} cwdPendingT;
+
+static int
+cwdPendingAdd(cwdPendingT **list, int *count, int *cap,
+              const char *path, const char *jobId,
+              dev_t dev, ino_t ino, int hasIdentity)
+{
+    cwdPendingT *newList;
+    char *newPath, *newJobId;
+
+    if (*count >= *cap) {
+        int newCap = (*cap == 0) ? 4 : *cap * 2;
+
+        newList = (cwdPendingT *)realloc(*list,
+                                         newCap * sizeof(cwdPendingT));
+        if (newList == NULL)
+            return -1;
+        *list = newList;
+        *cap = newCap;
+    }
+    newPath = (char *)malloc(strlen(path) + 1);
+    newJobId = (char *)malloc(strlen(jobId) + 1);
+    if (newPath == NULL || newJobId == NULL) {
+        free(newPath);
+        free(newJobId);
+        return -1;
+    }
+    strcpy(newPath, path);
+    strcpy(newJobId, jobId);
+    (*list)[*count].path = newPath;
+    (*list)[*count].jobId = newJobId;
+    (*list)[*count].dev = dev;
+    (*list)[*count].ino = ino;
+    (*list)[*count].hasIdentity = hasIdentity;
+    (*count)++;
+    return 0;
+}
+
+static void
+cwdPendingFree(cwdPendingT *list, int count)
+{
+    int i;
+
+    for (i = 0; i < count; i++) {
+        free(list[i].path);
+        free(list[i].jobId);
+    }
+    free(list);
+}
+
+static int cwdRemoveTree(const char *path, int hasIdentity, dev_t regDev,
+                         ino_t regIno);
+
+/*
+ * cwdRemoveLogged - delete one recorded CWD tree outside the cwdlist lock
+ * and warn on failure.  tag is the caller's name for the log message.
+ */
+static void
+cwdRemoveLogged(const char *tag, const char *path, const char *jobId,
+                dev_t dev, ino_t ino, int hasIdentity)
+{
+    if (cwdRemoveTree(path, hasIdentity, dev, ino) < 0 && errno != ENOENT) {
+        /* The failure may be a refusal before anything was removed
+         * (identity mismatch, CWD is a mount point) or an error partway
+         * through the recursion, so never claim nothing was deleted. */
+        ls_syslog(LOG_WARNING,
+                  "%s: removing CWD <%s> of job <%s> stopped: %m; the tree may be partially deleted, record removed, no retry",
+                  tag, path, jobId);
+    }
+}
+
+/*
+ * Retry budget for cwdTrackAdd's cwdlist flock acquisition.  Unlike the
+ * sweep paths, giving up here is permanent: the CWD is never registered
+ * and thus never reclaimed.  Retries are cheap (open+flock) and bounded:
+ * this runs in the job-start path after mkdirRecursive(), and on
+ * exhaustion the job proceeds without tracking (fail-open).
+ */
+#define CWD_LOCK_RETRIES 3
+
+/*
+ * cwdTrackAdd - record a dynamic CWD so it can be removed once the job has
+ * finished and JOB_CWD_TTL has elapsed.
+ *
+ * Registering a path here hands it to root-side deletion (cwdCleanupExpired()
+ * runs in sbatchd, which is root), so callers must only register directories
+ * they actually created -- i.e. only when mkdirRecursive() returned 0.  See
+ * the SAFETY note on cwdCleanupExpired().
+ *
+ * There is no reference counting: only the job that creates the directory
+ * (mkdirRecursive() returns 0) registers a record, so a dynamic CWD shared
+ * by several jobs is tracked by its creator alone and its removal does not
+ * consult the other jobs.
+ *
+ * The record also stores the directory identity (device + inode) captured
+ * through an O_NOFOLLOW fd, so removal can refuse to delete a different
+ * directory that later appears at the same path.
+ */
+void
+cwdTrackAdd(const char *path, LS_LONG_INT jobId)
+{
+    char listPath[MAXPATHLEN];
+    FILE *fp;
+    struct timespec delay;
+    int lockFd;
+    int attempt;
+
+    if (clusterName == NULL || path == NULL || path[0] == '\0')
+        return;
+
+    getCwdListPath(listPath, sizeof(listPath));
+
+    lockFd = -1;
+    for (attempt = 0; attempt < CWD_LOCK_RETRIES; attempt++) {
+        lockFd = cwdListLock();
+        if (lockFd >= 0)
+            break;
+        /* Retry after a short backoff: 100ms, then 200ms. */
+        if (attempt + 1 < CWD_LOCK_RETRIES) {
+            delay.tv_sec = 0;
+            delay.tv_nsec = 100000000L * (attempt + 1);
+            nanosleep(&delay, NULL);
+        }
+    }
+    if (lockFd < 0) {
+        ls_syslog(LOG_WARNING,
+                  "cwdTrackAdd: cwdlist lock unavailable after %d attempts; "
+                  "CWD <%s> of job <%s> will not be TTL-tracked",
+                  CWD_LOCK_RETRIES, path, lsb_jobidinstr(jobId));
+        return;
+    }
+
+    {
+        struct stat st;
+        dev_t dirDev;
+        ino_t dirIno;
+        int dirFd;
+
+        /* Capture the identity of the very directory being registered so
+         * the sweeps can verify the path still names it. */
+        dirFd = open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+        if (dirFd < 0 || fstat(dirFd, &st) != 0) {
+            ls_syslog(LOG_WARNING,
+                      "cwdTrackAdd: cannot capture identity of CWD <%s> "
+                      "of job <%s>: %m; will not be TTL-tracked",
+                      path, lsb_jobidinstr(jobId));
+            if (dirFd >= 0)
+                close(dirFd);
+            close(lockFd);
+            return;
+        }
+        dirDev = st.st_dev;
+        dirIno = st.st_ino;
+        close(dirFd);
+
+        fp = cwdListOpenWrite(listPath, 1);
+        if (fp == NULL) {
+            ls_syslog(LOG_ERR, "cwdTrackAdd: cannot open %s: %m", listPath);
+            close(lockFd);
+            return;
+        }
+        cwdWriteLine(fp, path, lsb_jobidinstr(jobId), 0, jobCwdTtl,
+                     dirDev, dirIno, 1);
+        fclose(fp);
+    }
+    close(lockFd);
+}
+
+/*
+ * cwdRemoveIntree - remove every entry inside directory fd dirFd, recursing
+ * into subdirectories, then remove the subdirectories themselves.  The
+ * caller opens dirFd with O_NOFOLLOW; entries are removed with fstatat() +
+ * unlinkat() relative to that fd, so no component is ever re-resolved by
+ * path and a concurrent rename cannot redirect the deletion.
+ *
+ * Symlinks are unlinked, never followed.  A directory whose opened fd sits
+ * on a different device (a mount point) aborts the whole removal with
+ * EXDEV so root cannot delete through a filesystem mounted into the job
+ * CWD; a bind mount shares the device number and cannot be told apart by
+ * this check.
+ *
+ * dirFd is left open on all paths; the caller owns and closes it.
+ */
+static int
+cwdRemoveIntree(int dirFd)
+{
+    DIR *dp;
+    struct dirent *entry;
+    struct stat dst;
+    int dupFd;
+    int rc = 0;
+
+    if (fstat(dirFd, &dst) != 0)
+        return -1;
+
+    dupFd = dup(dirFd);
+    if (dupFd < 0)
+        return -1;
+    dp = fdopendir(dupFd);
+    if (dp == NULL) {
+        close(dupFd);
+        return -1;
+    }
+
+    for (;;) {
+        struct stat st;
+        int childFd;
+        int sv;
+
+        errno = 0;
+        entry = readdir(dp);
+        if (entry == NULL) {
+            if (errno != 0) {
+                /* readdir() failed, not a clean end of directory. */
+                sv = errno;
+                closedir(dp);
+                errno = sv;
+                return -1;
+            }
+            break;
+        }
+
+        if (entry->d_name[0] == '.' &&
+            (entry->d_name[1] == '\0' ||
+             (entry->d_name[1] == '.' && entry->d_name[2] == '\0')))
+            continue;
+
+        if (fstatat(dirFd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW) != 0) {
+            /* The entry raced away (ENOENT): nothing left to remove, carry
+             * on with the rest of the directory.  Anything else is a real
+             * failure of the whole removal. */
+            if (errno != ENOENT) {
+                sv = errno;
+                closedir(dp);
+                errno = sv;
+                return -1;
+            }
+            continue;
+        }
+
+        if (S_ISDIR(st.st_mode)) {
+            struct stat cst;
+
+            childFd = openat(dirFd, entry->d_name,
+                             O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+            if (childFd < 0) {
+                if (errno == ENOENT)        /* raced away */
+                    continue;
+                sv = errno;
+                closedir(dp);
+                errno = sv;
+                return -1;
+            }
+            /* Verify the object actually opened, not just the name that was
+             * stat()ed a moment ago: it must still be that same directory
+             * (a concurrent swap in between is refused with ESTALE) and it
+             * must not be on a different filesystem (EXDEV). */
+            if (fstat(childFd, &cst) != 0) {
+                sv = errno;
+                close(childFd);
+                closedir(dp);
+                errno = sv;
+                return -1;
+            }
+            if (cst.st_dev != dst.st_dev) {
+                close(childFd);
+                closedir(dp);
+                errno = EXDEV;
+                return -1;
+            }
+            if (cst.st_ino != st.st_ino || cst.st_dev != st.st_dev) {
+                close(childFd);
+                closedir(dp);
+                errno = ESTALE;
+                return -1;
+            }
+            if (cwdRemoveIntree(childFd) != 0) {
+                sv = errno;
+                close(childFd);
+                closedir(dp);
+                errno = sv;
+                return -1;
+            }
+            if (unlinkat(dirFd, entry->d_name, AT_REMOVEDIR) != 0) {
+                sv = errno;
+                close(childFd);
+                closedir(dp);
+                errno = sv;
+                return -1;
+            }
+            close(childFd);
+        } else {
+            if (unlinkat(dirFd, entry->d_name, 0) != 0) {
+                if (errno == ENOENT)        /* raced away */
+                    continue;
+                sv = errno;
+                closedir(dp);
+                errno = sv;
+                return -1;
+            }
+        }
+    }
+
+    closedir(dp);
+    return rc;
+}
+
+/*
+ * cwdRemoveTree - remove the tree rooted at path, contents included.
+ *
+ * cwdCleanupExpired()/cwdTrackMarkFinished() run as root on a path recorded
+ * hours earlier whose every component sits in user-writable space, so a
+ * plain rm -rf style operation would let the submitter swap a component for
+ * a symlink and redirect the deletion.  Every component of the path itself
+ * is opened level by level with O_NOFOLLOW (a ".." or "." leaf is refused),
+ * and the subtree is removed through cwdRemoveIntree() with fd-relative
+ * fstatat()/unlinkat() so nothing is ever re-resolved by path and symlinks
+ * are unlinked instead of followed.
+ *
+ * The opened leaf is verified against the identity recorded at registration:
+ * records without an identity, and paths that were since reused for another
+ * directory, are refused with ESTALE; a leaf on a different filesystem than
+ * its parent (i.e. the CWD itself became a mount point) is refused with
+ * EXDEV.  A bind mount keeps the parent's device number and cannot be told
+ * apart by these checks.
+ *
+ * Removal is not atomic: a racing writer (e.g. a job sharing the CWD) can
+ * make it fail partway with the directory partially deleted and the rest
+ * left on disk; ENOENT on the way down counts as already-gone.
+ */
+static int
+cwdRemoveTree(const char *path, int hasIdentity, dev_t regDev, ino_t regIno)
+{
+    char buf[MAXPATHLEN];
+    char *comp, *save, *leaf;
+    struct stat lst, pst;
+    int dirFd, nextFd;
+
+    if (path[0] != '/' || strlen(path) >= sizeof(buf)) {
+        errno = EINVAL;
+        return -1;
+    }
+    strcpy(buf, path);
+
+    if ((leaf = strrchr(buf, '/')) == NULL || leaf[1] == '\0') {
+        errno = EINVAL;                 /* trailing slash, or bare "/" */
+        return -1;
+    }
+    *leaf++ = '\0';
+
+    /* Refuse "."/".." leaves outright: opening them would target the
+     * parent directory itself and recursively destroy its contents. */
+    if (leaf[0] == '.' &&
+        (leaf[1] == '\0' || (leaf[1] == '.' && leaf[2] == '\0'))) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if ((dirFd = open("/", O_RDONLY | O_DIRECTORY)) < 0)
+        return -1;
+
+    for (comp = strtok_r(buf, "/", &save); comp != NULL;
+         comp = strtok_r(NULL, "/", &save)) {
+        if (strcmp(comp, "..") == 0) {  /* never walk upward */
+            close(dirFd);
+            errno = EINVAL;
+            return -1;
+        }
+        nextFd = openat(dirFd, comp, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+        if (nextFd < 0) {
+            int sv = errno;
+            close(dirFd);
+            errno = sv;
+            return -1;
+        }
+        close(dirFd);
+        dirFd = nextFd;
+    }
+
+    nextFd = openat(dirFd, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW);
+    if (nextFd < 0) {
+        int sv = errno;
+        close(dirFd);
+        errno = sv;
+        return -1;
+    }
+
+    if (fstat(nextFd, &lst) != 0 || fstat(dirFd, &pst) != 0) {
+        int sv = errno;
+        close(nextFd);
+        close(dirFd);
+        errno = sv;
+        return -1;
+    }
+
+    if (lst.st_dev != pst.st_dev) {
+        /* The CWD itself (or its parent chain end) is a mount point. */
+        close(nextFd);
+        close(dirFd);
+        errno = EXDEV;
+        return -1;
+    }
+
+    if (!hasIdentity || lst.st_dev != regDev || lst.st_ino != regIno) {
+        /* The path no longer names the directory that was registered
+         * (or the record predates identity tracking): refuse to delete
+         * whatever sits there now. */
+        close(nextFd);
+        close(dirFd);
+        errno = ESTALE;
+        return -1;
+    }
+
+    if (cwdRemoveIntree(nextFd) != 0) {
+        int sv = errno;
+        close(nextFd);
+        close(dirFd);
+        errno = sv;
+        return -1;
+    }
+
+    if (unlinkat(dirFd, leaf, AT_REMOVEDIR) < 0) {
+        int sv = errno;
+        close(nextFd);
+        close(dirFd);
+        errno = sv;
+        return -1;
+    }
+    close(nextFd);
+    close(dirFd);
+    return 0;
+}
+
+void
+cwdTrackMarkFinished(LS_LONG_INT jobId)
+{
+    char listPath[MAXPATHLEN];
+    char tmpPath[MAXPATHLEN];
+    char line[MAXPATHLEN + 128];
+    FILE *fp, *tmpFp;
+    int lockFd;
+    int i;
+    char *jobIdStr;
+    time_t finishTime = time(NULL);
+    cwdPendingT *pending = NULL;
+    int nPending = 0, capPending = 0;
+
+    if (clusterName == NULL)
+        return;
+
+    getCwdListPath(listPath, sizeof(listPath));
+    snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", listPath);
+
+    lockFd = cwdListLock();
+    if (lockFd < 0)
+        return;
+
+    fp = fopen(listPath, "r");
+    if (fp == NULL) {
+        /* No cwdlist means no records to mark: with JOB_CWD_TTL disabled
+         * nothing is ever registered, so ENOENT is the normal case, not an
+         * error. */
+        if (errno != ENOENT) {
+            ls_syslog(LOG_ERR, "cwdTrackMarkFinished: cannot open %s: %m",
+                      listPath);
+        }
+        close(lockFd);
+        return;
+    }
+
+    tmpFp = cwdListOpenWrite(tmpPath, 0);
+    if (tmpFp == NULL) {
+        ls_syslog(LOG_ERR, "cwdTrackMarkFinished: cannot open %s: %m",
+                  tmpPath);
+        fclose(fp);
+        close(lockFd);
+        return;
+    }
+
+    jobIdStr = lsb_jobidinstr(jobId);
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        char path[MAXPATHLEN];
+        char storedJobId[64];
+        time_t storedFinish;
+        int storedTtl;
+        dev_t storedDev;
+        ino_t storedIno;
+        int hasIdentity;
+
+        if (cwdParseLine(line, path, sizeof(path), storedJobId,
+                         sizeof(storedJobId), &storedFinish, &storedTtl,
+                         &storedDev, &storedIno, &hasIdentity) == 0) {
+            if (strcmp(storedJobId, jobIdStr) == 0 && storedFinish == 0) {
+                if (storedTtl == 0) {
+                    /* TTL=0: remove the CWD -- contents included, matching
+                     * LSF -- as soon as the job finishes.  The record is
+                     * dropped here and the tree deletion is queued until
+                     * after the cwdlist lock is released, so a large tree
+                     * does not stall other registrations. */
+                    if (cwdPendingAdd(&pending, &nPending, &capPending,
+                                      path, storedJobId, storedDev,
+                                      storedIno, hasIdentity) != 0)
+                        ls_syslog(LOG_WARNING,
+                                  "cwdTrackMarkFinished: cannot queue CWD <%s> of job <%s> for removal: %m; directory left on disk",
+                                  path, lsb_jobidinstr(jobId));
+                } else if (storedTtl == INFINIT_INT) {
+                    /* JOB_CWD_TTL unset (never recycle): drop the finished
+                     * job's record (defensive for legacy entries). */
+                } else {
+                    cwdWriteLine(tmpFp, path, storedJobId, finishTime,
+                                 storedTtl, storedDev, storedIno, hasIdentity);
+                }
+            } else {
+                fputs(line, tmpFp);
+            }
+        } else {
+            fputs(line, tmpFp);
+        }
+    }
+
+    {
+        int commitOk = 0;
+        int streamErr = 0;
+        int closeErr;
+
+        /* ferror() must be read before the stream is closed, and a
+         * stream error can exist even when fclose() reports success,
+         * so gate the commit on both: an incomplete tmp file must
+         * never replace the original records. */
+        streamErr = (ferror(fp) != 0) || (ferror(tmpFp) != 0);
+        if (streamErr)
+            ls_syslog(LOG_ERR,
+                      "cwdTrackMarkFinished: I/O error while rewriting %s; keeping the original records",
+                      listPath);
+        closeErr = fclose(tmpFp);
+        if (streamErr == 0 && closeErr != 0) {
+            ls_syslog(LOG_ERR, "cwdTrackMarkFinished: cannot flush %s: %m",
+                      tmpPath);
+        } else if (streamErr == 0 && rename(tmpPath, listPath) != 0) {
+            ls_syslog(LOG_ERR,
+                      "cwdTrackMarkFinished: rename(%s, %s) failed: %m",
+                      tmpPath, listPath);
+        } else if (streamErr == 0) {
+            commitOk = 1;
+        }
+        fclose(fp);
+        close(lockFd);
+
+        if (!commitOk) {
+            /* The records are still in the original cwdlist (or the
+             * rewrite was not persisted): the directories were not yet
+             * attempted, so leave them alone -- the kept records let a
+             * later pass retry the removal. */
+            cwdPendingFree(pending, nPending);
+            return;
+        }
+    }
+
+    for (i = 0; i < nPending; i++)
+        cwdRemoveLogged("cwdTrackMarkFinished", pending[i].path,
+                        pending[i].jobId, pending[i].dev, pending[i].ino,
+                        pending[i].hasIdentity);
+    cwdPendingFree(pending, nPending);
+}
+
+/*
+ * cwdJobQueued - return non-zero if jobIdStr names a job still present in the
+ * sbatchd job queue.  Used to detect a not-yet-finished cwdlist record whose
+ * job vanished (SIGKILL/reboot), i.e. an orphan.  Only consult this once the
+ * queue is fully rebuilt (periodic sweep, never at startup).
+ */
+static int
+cwdJobQueued(const char *jobIdStr)
+{
+    struct jobCard *jp;
+
+    for (jp = jobQueHead->forw; jp != jobQueHead; jp = jp->forw) {
+        if (strcmp(lsb_jobidinstr(jp->jobSpecs.jobId), jobIdStr) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+/*
+ * cwdCleanupExpired - remove expired job CWDs recorded by cwdTrackAdd().
+ *
+ * SAFETY: this runs inside sbatchd, i.e. as root, over paths derived from
+ * user-supplied "bsub -cwd" / DEFAULT_JOB_CWD values.  Two invariants bound
+ * what can be removed:
+ *
+ *   1. Only directories mkdirRecursive() actually created are registered --
+ *      it returns non-zero when the path already existed -- so a pre-existing
+ *      directory is never subject to TTL removal.
+ *   2. Removal goes through cwdRemoveTree(): the whole subtree is deleted,
+ *      contents included, but every operation is fd-relative with
+ *      O_NOFOLLOW -- a symlink is unlinked, never followed, and no component
+ *      is ever re-resolved by path -- so a submitter cannot redirect the
+ *      deletion.  The opened CWD is verified against the dev/ino identity
+ *      recorded at registration and against its parent's filesystem, so a
+ *      path later reused for another directory, or a CWD that became a
+ *      mount point, is refused rather than deleted (a bind mount keeps the
+ *      device number and remains an undetectable limitation).
+ *
+ * Removal is aligned with LSF: a CWD that has reached its TTL is removed
+ * even if the job left files in it, since the directory itself was created
+ * by the system for the job.  This makes a CWD shared by several jobs (e.g.
+ * DEFAULT_JOB_CWD without %J/%I) destructive: one job's expiry deletes the
+ * other jobs' files too, not just an empty directory; sharing a dynamic CWD
+ * under an active JOB_CWD_TTL is therefore unsupported -- use %J/%I or
+ * otherwise distinct paths.  A shared CWD can likewise still be removed
+ * while another job has it as its working directory (that job's cwd then
+ * dangles).  Closing that residual case would require reference counting.
+ *
+ * JOB_CWD_TTL likewise requires that no mount point visible to sbatchd
+ * (a bind mount included, as it keeps the device number) sit at or
+ * inside any tracked CWD: the expiry cleanup deletes the whole tree
+ * and cannot tell a bind mount apart, so its contents would be deleted
+ * along with the CWD.
+ *
+ * Removal is also not atomic: a racing writer can make it fail partway,
+ * leaving the directory partially deleted on disk; failures are logged at
+ * WARNING and the record is dropped, so nothing is retried.  The tree is
+ * deleted only after the cwdlist lock is released and the rewritten
+ * cwdlist has been committed, so the deletion itself no longer stalls
+ * other registrations -- but it still runs synchronously in the caller
+ * before the main loop resumes, and the pending deletions are not
+ * persisted: a crash after the commit but before the deletion leaves the
+ * directory on disk with no record left to retry it (an accepted
+ * best-effort trade-off).
+ */
+
+void
+cwdCleanupExpired(int checkOrphans)
+{
+    char listPath[MAXPATHLEN];
+    char tmpPath[MAXPATHLEN];
+    char line[MAXPATHLEN + 128];
+    FILE *fp, *tmpFp;
+    struct stat cwdListSt;
+    int lockFd;
+    int i;
+    time_t currentTime = time(NULL);
+    cwdPendingT *pending = NULL;
+    int nPending = 0, capPending = 0;
+
+    /* An empty job queue is no basis for the orphan check: at normal startup
+     * the queue is rebuilt synchronously (getJobsState) before the periodic
+     * sweep, but a pathological mbatchd reply -- 0 jobs while mbatchd is still
+     * recovering -- would otherwise mark every unfinished record orphaned. */
+    if (checkOrphans && jobQueHead->forw == jobQueHead)
+        checkOrphans = 0;
+
+    if (clusterName == NULL)
+        return;
+
+    getCwdListPath(listPath, sizeof(listPath));
+
+    /* Skip the sweep when no cwdlist exists yet: nothing is being tracked
+     * (JOB_CWD_TTL disabled, or enabled but no dynamic CWD recorded yet),
+     * so do not create the cwdlist.lock artifact.  A record appended right
+     * after this probe is handled by the next periodic sweep. */
+    if (lstat(listPath, &cwdListSt) != 0 && errno == ENOENT)
+        return;
+
+    lockFd = cwdListLock();
+    if (lockFd < 0)
+        return;
+
+    fp = fopen(listPath, "r");
+    if (fp == NULL) {
+        /* No cwdlist means nothing to sweep: with JOB_CWD_TTL disabled
+         * nothing is ever registered, so ENOENT is the normal case, not
+         * an error. */
+        if (errno != ENOENT) {
+            ls_syslog(LOG_ERR, "cwdCleanupExpired: cannot open %s: %m",
+                      listPath);
+        }
+        close(lockFd);
+        return;
+    }
+
+    snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", listPath);
+    tmpFp = cwdListOpenWrite(tmpPath, 0);
+    if (tmpFp == NULL) {
+        ls_syslog(LOG_ERR, "cwdCleanupExpired: cannot open %s: %m",
+                  tmpPath);
+        fclose(fp);
+        close(lockFd);
+        return;
+    }
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        char path[MAXPATHLEN];
+        char storedJobId[64];
+        time_t storedFinish;
+        int storedTtl;
+        dev_t storedDev;
+        ino_t storedIno;
+        int hasIdentity;
+
+        if (cwdParseLine(line, path, sizeof(path), storedJobId,
+                         sizeof(storedJobId), &storedFinish, &storedTtl,
+                         &storedDev, &storedIno, &hasIdentity) != 0) {
+            continue;
+        }
+
+        if (storedFinish == 0) {
+            /* A not-yet-finished record whose job is no longer in the queue is
+             * an orphan (sbatchd killed / node crashed): stamp a finish time
+             * so the normal TTL path retires it on a later sweep.  Only run
+             * during the periodic sweep, once the queue is rebuilt. */
+            if (checkOrphans && !cwdJobQueued(storedJobId))
+                cwdWriteLine(tmpFp, path, storedJobId, currentTime,
+                             storedTtl, storedDev, storedIno, hasIdentity);
+            else
+                fputs(line, tmpFp);
+            continue;
+        }
+
+        if (storedTtl == INFINIT_INT) {
+            /* JOB_CWD_TTL unset (never recycle): a finished job's record is
+             * useless, so drop it -- this also clears legacy records within
+             * one sweep after upgrading.  Running jobs (storedFinish == 0)
+             * were carried over above. */
+            continue;
+        }
+
+        if (currentTime - storedFinish >= (time_t)storedTtl * 3600) {
+            /* TTL elapsed: drop the record now and queue the tree removal
+             * until after the cwdlist lock is released, so a large tree
+             * does not stall other registrations.  Deletion still runs
+             * synchronously in the sweep before the main loop resumes. */
+            if (cwdPendingAdd(&pending, &nPending, &capPending,
+                              path, storedJobId, storedDev, storedIno,
+                              hasIdentity) != 0)
+                ls_syslog(LOG_WARNING,
+                          "cwdCleanupExpired: cannot queue CWD <%s> of job <%s> for removal: %m; directory left on disk",
+                          path, storedJobId);
+        } else {
+            fputs(line, tmpFp);
+        }
+    }
+
+    {
+        int commitOk = 0;
+        int streamErr = 0;
+        int closeErr;
+
+        /* ferror() must be read before the stream is closed, and a
+         * stream error can exist even when fclose() reports success,
+         * so gate the commit on both: an incomplete tmp file must
+         * never replace the original records. */
+        streamErr = (ferror(fp) != 0) || (ferror(tmpFp) != 0);
+        if (streamErr)
+            ls_syslog(LOG_ERR,
+                      "cwdCleanupExpired: I/O error while rewriting %s; keeping the original records",
+                      listPath);
+        closeErr = fclose(tmpFp);
+        if (streamErr == 0 && closeErr != 0) {
+            ls_syslog(LOG_ERR, "cwdCleanupExpired: cannot flush %s: %m",
+                      tmpPath);
+        } else if (streamErr == 0 && rename(tmpPath, listPath) != 0) {
+            ls_syslog(LOG_ERR,
+                      "cwdCleanupExpired: rename(%s, %s) failed: %m",
+                      tmpPath, listPath);
+        } else if (streamErr == 0) {
+            commitOk = 1;
+        }
+        fclose(fp);
+        close(lockFd);
+
+        if (!commitOk) {
+            /* The records are still in the original cwdlist (or the
+             * rewrite was not persisted): the directories were not yet
+             * attempted, so leave them alone -- the kept records let a
+             * later pass retry the removal. */
+            cwdPendingFree(pending, nPending);
+            return;
+        }
+    }
+
+    for (i = 0; i < nPending; i++)
+        cwdRemoveLogged("cwdCleanupExpired", pending[i].path,
+                        pending[i].jobId, pending[i].dev, pending[i].ino,
+                        pending[i].hasIdentity);
+    cwdPendingFree(pending, nPending);
 }
