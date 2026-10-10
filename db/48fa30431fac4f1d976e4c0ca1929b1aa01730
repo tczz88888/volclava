@@ -1,0 +1,42 @@
+volcinstall.sh
+  s_f0be57691714c4::t_6fc5ddaae1f579 78
+  s_f0be57691714c4::t_45bfd7e8f1cf81 411-413
+debian/rules
+  s_f0be57691714c4::t_147babe82d6190 79
+  s_f0be57691714c4::t_dbbe2bdfa74cbe 57,63-64
+  s_f0be57691714c4::t_4186b610e77f3a 58-62,65-67,69-70,76-78
+  s_f0be57691714c4::t_1097f559f34407 68,71-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "db48fa30431fac4f1d976e4c0ca1929b1aa01730",
+  "prompts": {},
+  "humans": {
+    "h_1fe56e763a13af": {
+      "author": "Yinkai Lu <939948564@qq.com>"
+    }
+  },
+  "sessions": {
+    "s_f0be57691714c4": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6ac8b23b3996ad54fafdf692",
+        "model": "glm-5.3-flashx__dev"
+      },
+      "human_author": null,
+      "custom_attributes": {
+        "client_type": "ide",
+        "operation_id": "6ac8d37c3996ad54fafdf97a",
+        "tool_use_id": "6ac8d37c3996ad54fafdf97a",
+        "external_session_id": "6ac8b23b3996ad54fafdf692",
+        "display_model_name": "GLM-5.3-FlashX",
+        "runtime_client": "trae-tob-git-ai",
+        "session_id": "6ac8b23b3996ad54fafdf692",
+        "source_scene": "agent",
+        "tool_name": "Edit",
+        "edit_kind": "file_edit"
+      }
+    }
+  }
+}
