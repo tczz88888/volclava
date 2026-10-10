@@ -1,0 +1,14 @@
+lsbatch/daemons/mbd.job.c
+  h_1fe56e763a13af 8253-8258
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.2",
+  "base_commit_sha": "10be50c98059b07627105783a6e72da6f0f01c14",
+  "prompts": {},
+  "humans": {
+    "h_1fe56e763a13af": {
+      "author": "Yinkai Lu <939948564@qq.com>"
+    }
+  }
+}
