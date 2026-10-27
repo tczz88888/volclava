@@ -1,0 +1,544 @@
+.\" Copyright (C) 2026 Bytedance Ltd. and/or its affiliates
+.TH BHIST-SPEEDUP 1 "October 2026" "Volclava 2.2" "User Commands"
+.SH NAME
+bhist-speedup \- faster bhist job history queries
+.SH SYNOPSIS
+.B bhist
+.RI [ options ]
+.RI [ job_ID " ...]"
+.br
+.B bhist-admin loader
+.BR start | stop | restart | status | clean
+.br
+.B bhist-admin server
+.BR start | stop | restart | status | view
+.br
+.B bhist-admin server perfmon
+.IR seconds | \fBstop\fR
+.br
+.B bhist-speedup-setup
+.RB [ \-\-remove ]
+.SH DESCRIPTION
+Standard bhist builds job history by reading the
+.B lsb.events
+event files. Its queries slow down as the files grow larger and more
+numerous. By default it reads only the current
+.B lsb.events
+and ignores earlier archives, and a query that spans many archives can use
+so much memory that it runs out of memory.
+.PP
+bhist speed up keeps importing the event files into a local database in the
+background. For a query, it first selects the events of the matching jobs
+from the database, then has standard bhist format them. The output is the
+same as standard bhist, common queries are much faster, and queries can
+cover a much longer history.
+.SH USING BHIST
+Use
+.B bhist
+as before; nothing changes:
+.PP
+.RS
+.nf
+bhist \-a \-u all
+bhist \-l 12345
+bhist \-C 2026/10/01/00:00,2026/10/20/23:59 \-u alice
+.fi
+.RE
+.SS Accelerated queries
+A query is accelerated when it uses only the following:
+.TP
+.BR \-l ", " \-w
+Long or wide format, not both.
+.TP
+.BR \-a ", " \-d ", " \-e ", " \-p ", " \-s ", " \-r
+Filter by job state.
+.TP
+.BR \-u ", " \-q ", " \-m
+Filter by user, queue, or host; each at most once.
+.TP
+.BR \-S ", " \-D ", " \-C
+Filter by submit, dispatch, or completion time.
+.TP
+.I job_ID
+One or more job IDs, including job arrays and array elements, for example
+.BR 123 ,
+.BR 123[4] ,
+or
+.BR 123[1-10] .
+.PP
+The options mean the same as in standard bhist; see
+.BR bhist (1).
+Any other query runs standard bhist directly, for example one with another
+option
+.RB ( \-n ,
+.BR \-f ,
+.BR \-t ,
+.BR \-b ,
+.BR \-J ,
+and so on),
+.BR \-h ,
+or
+.BR \-V .
+.SS Differences from standard bhist
+.TP
+.B All kept history is searched by default.
+Standard bhist reads only the current
+.B lsb.events
+unless
+.B \-n
+is given. An accelerated query returns what
+.B "bhist \-n 0"
+would, over all history kept in the database (the last 30 days by default,
+as configured by the administrator).
+.TP
+.B New events appear with a delay.
+A job change shows up a few seconds to a few tens of seconds later.
+.SS When acceleration is unavailable
+If the query fails in the bhist speed up service, bhist runs standard bhist
+instead and prints:
+.PP
+.RS
+.nf
+bhist speed up: falling back to standard bhist
+.fi
+.RE
+.PP
+The results are still correct, only as slow as standard bhist. The usual
+causes are that the service is not running or the database is still being
+built. If this message keeps appearing, contact your cluster administrator.
+.PP
+If the query fails after part of the output has been printed, bhist does not
+run standard bhist, to avoid printing the output twice. It prints the
+following; run the query again:
+.PP
+.RS
+.nf
+bhist speed up: warning: results may be incomplete
+.fi
+.RE
+.SS LSF clusters on CentOS
+On CentOS releases earlier than 8, if
+.B lsf.entitlement
+or
+.B profile.lsf
+exists in
+.B LSF_ENVDIR
+(an LSF cluster), bhist always runs standard bhist.
+.SH ADMINISTRATION
+.SS Requirements
+.IP \(bu 2
+One host in the cluster serves as the service host. It may be a master
+candidate or a compute host, but jobs should not be dispatched to it. It needs
+a local disk (at least 200 GB is recommended) and must be reachable from all
+cluster hosts.
+.IP \(bu 2
+bhist speed up was enabled at build or install time
+.RB ( VOLC_BHIST_SPEEDUP=Y
+in
+.BR install.conf ).
+.IP \(bu 2
+SQLite on the service host is version 3.8.0 or later.
+.IP \(bu 2
+Management commands run on the service host as root or as the first cluster
+administrator (the first user of
+.B ClusterAdmins
+in
+.BR lsf.cluster. \fIcluster_name\fR).
+.SS Configuration
+Set two parameters in
+.BR $LSF_ENVDIR/lsb.hist :
+.PP
+.RS
+.nf
+LSB_BHIST_ENDPOINT=hostA:3000
+LSB_BHIST_DB_PATH=/var/lib/bhist-speedup/bhist-speedup.sqlite
+.fi
+.RE
+.TP
+.B LSB_BHIST_ENDPOINT
+Service host name and port. The server listens on this port on all IPv4
+addresses of the host; bhist connects to it by this host name.
+.TP
+.B LSB_BHIST_DB_PATH
+Absolute path of the database file, on a local disk of the service host
+(SSD recommended), not on NFS.
+.PP
+The loader finds the cluster's event directory by itself; set
+.B LSB_BHIST_EVENT_DIR
+only if the event files are elsewhere. For all parameters, see
+.BR lsb.hist (5);
+the defaults suit most hosts.
+.SS Starting and stopping
+The loader and server run on the service host named by
+.BR LSB_BHIST_ENDPOINT .
+Manage them in one of two ways.
+.PP
+.B Under systemd (recommended).
+Run
+.B bhist-speedup-setup
+once as root. It creates the
+.B volclava-bhist-loader
+and
+.B volclava-bhist-server
+systemd services and enables them at boot; systemd restarts a service that
+exits abnormally.
+.PP
+.RS
+.nf
+bhist-speedup-setup
+systemctl start volclava-bhist-loader volclava-bhist-server
+.fi
+.RE
+.PP
+.B By hand.
+.PP
+.RS
+.nf
+bhist-admin loader start
+bhist-admin server start
+.fi
+.RE
+.PP
+A service started with bhist-admin is not managed by systemd: it does not
+start at boot and is not restarted if it exits. Do not mix the two ways; once
+the systemd services are installed, start and stop with
+.BR systemctl .
+.PP
+On its first start the loader imports all existing event files, which can
+take a long time for a large cluster; until it finishes, bhist runs standard
+bhist. Check progress with
+.BR "bhist-admin loader status" ;
+.B db_status=ready
+means the database is ready.
+.SS Rebuilding the database
+When the loader log asks for a rebuild, or
+.B bhist-admin loader status
+shows
+.BR db_status=rebuild_required ,
+for example:
+.PP
+.RS
+.nf
+state=stopped
+log=/opt/volclava/log/bhist-speedup-loader.log.hostA
+db=/var/lib/bhist-speedup/bhist-speedup.sqlite
+eventsdir=/opt/volclava/work/logdir
+db_status=rebuild_required
+cluster=volclava
+created=2026-10-22 10:37:41
+event_rows_tracked=160340
+.fi
+.RE
+.PP
+rebuild the database:
+.PP
+.RS
+.nf
+bhist-admin loader stop
+bhist-admin loader clean
+bhist-admin loader start
+.fi
+.RE
+.PP
+With the systemd services installed, use
+.B "systemctl stop volclava-bhist-loader"
+and
+.B "systemctl start volclava-bhist-loader"
+for the first and last steps. bhist runs standard bhist during the rebuild;
+the server keeps running. A rebuild restores only the history in event files
+that still exist.
+.SS Changing the configuration
+.IP \(bu 2
+Restart the loader and server after editing
+.BR lsb.hist .
+.IP \(bu 2
+Stop the loader before changing
+.BR LSB_BHIST_DB_PATH ;
+otherwise it keeps writing to the old path.
+.IP \(bu 2
+Run
+.B bhist-speedup-setup
+again as root after the installation or platform directory changes.
+.SS Removing the systemd services
+.B "bhist-speedup-setup \-\-remove"
+stops and removes both services; it keeps the database and logs. Uninstalling
+Volclava does this automatically and reports the database directory, which
+must be removed by hand.
+.SH BHIST-ADMIN COMMANDS
+.TP
+.B start
+Start the loader or server.
+.TP
+.B stop
+Stop the loader or server, however it was started.
+.TP
+.B restart
+Stop, then start.
+.TP
+.B status
+Show the state; see STATUS OUTPUT.
+.TP
+.B clean
+Loader only. Delete the database so the next start rebuilds it from the
+event files. Stop the loader first.
+.TP
+.B view
+Server only. Show the latest performance sample.
+.TP
+.BI "perfmon " seconds
+Server only. Start sampling performance every
+.I seconds
+seconds.
+.TP
+.B perfmon stop
+Server only. Stop sampling.
+.PP
+With the systemd services installed, use
+.B systemctl
+for start, stop, and restart.
+.BR start ,
+.BR stop ,
+.BR restart ,
+and
+.B clean
+need root or the first cluster administrator;
+.BR status ,
+.BR view ,
+and
+.B perfmon
+accept any cluster administrator.
+.SH STATUS OUTPUT
+.B bhist-admin loader status
+prints, for example:
+.PP
+.RS
+.nf
+state=running
+pid=2686406
+log=/opt/volclava/log/bhist-speedup-loader.log.hostA
+db=/var/lib/bhist-speedup/bhist-speedup.sqlite
+eventsdir=/opt/volclava/work/logdir
+db_status=ready
+cluster=volclava
+created=2026-10-21 11:00:54
+event_rows_tracked=154118
+systemd=managed
+.fi
+.RE
+.TP
+.B state
+.B running
+or
+.BR stopped .
+.TP
+.BR pid ", " log
+Process ID and log file.
+.TP
+.BR db ", " eventsdir
+Database path and event directory.
+.TP
+.B db_status
+.B ready
+when usable;
+.B missing
+before the first import completes or before the first start;
+.B rebuild_required
+when the database must be rebuilt (see Rebuilding the database).
+.TP
+.BR cluster ", " created
+Cluster the database belongs to, and when it was created.
+.TP
+.B event_rows_tracked
+Number of events imported.
+.TP
+.B systemd
+.B managed
+when systemd runs the service,
+.B not managed
+when it was started by hand. Shown only when the systemd services are
+installed.
+.PP
+.B bhist-admin server status
+prints
+.B state
+.RB ( running ,
+.B starting
+when the process exists but does not yet accept connections, or
+.BR stopped ),
+.BR endpoint ,
+.BR pid ,
+.BR log ,
+the queries running and queued
+.RB ( running ", " queued ),
+their limits
+.RB ( max_running ", " max_scan_running ", " max_queued ;
+see
+.BR lsb.hist (5)),
+and
+.BR systemd .
+.SH PERFORMANCE SAMPLING
+.RS
+.nf
+bhist-admin server perfmon 60
+bhist-admin server view
+bhist-admin server perfmon stop
+.fi
+.RE
+.PP
+Example output of
+.B view
+after four 60-second periods:
+.PP
+.RS
+.nf
+Performance monitor start time: Wed Oct 21 16:56:18
+End time of last sample period: Wed Oct 21 17:00:18
+Sample period:                  60 Second(s)
+REQUESTS
+  Type                     Last          Max          Avg        Total
+  job_id                      0            6          3.0           12
+  time_range                  0            0          0.0            0
+  history_scan                0            0          0.0            0
+  TOTAL                       0            6          3.0           12
+OUTPUT TO CLIENT
+  Type                     Last          Max          Avg        Total
+  TOTAL                     0 B     83.2 KiB     21.3 KiB     85.3 KiB
+.fi
+.RE
+.PP
+.B REQUESTS
+counts queries by type:
+.B job_id
+names job IDs;
+.B time_range
+has no job ID but uses
+.BR \-S ,
+.BR \-D ,
+or
+.BR \-C ;
+.B history_scan
+has neither and searches all history.
+.B OUTPUT TO CLIENT
+is the data returned to users.
+.B Last
+is the latest period,
+.B Max
+the largest single period,
+.B Avg
+the average per period, and
+.B Total
+the sum since sampling started. In the example, 12 job ID queries were
+handled, at most 6 in one period, 3 per period on average, and none in the
+latest period.
+.PP
+Before the first period ends,
+.B view
+reports how many seconds remain. Samples are kept only in memory and are lost
+when sampling stops or the server restarts.
+.SH DIAGNOSTICS
+After each of the first four messages below, bhist also prints
+.B "falling back to standard bhist"
+and runs standard bhist; the results are still correct.
+.TP
+.B history database is not available yet
+The database is not built yet, or the loader is not running. Check
+.BR "bhist-admin loader status" ;
+start the loader if it is stopped.
+.TP
+.B cannot connect to service
+The server is not running, or the network is down. Check the server state,
+.BR LSB_BHIST_ENDPOINT ,
+and the firewall.
+.TP
+.B service error: ...
+The server refused the request, for example because its queue is full.
+Occasional messages can be ignored; if frequent, raise the concurrency or
+queue limits.
+.TP
+.B history query failed
+The server failed. Check the server log.
+.TP
+.B falling back to standard bhist
+(alone) This host cannot run the accelerated client. Check that
+.B bhist-fast
+is installed.
+.TP
+.B results may be incomplete
+The query failed after printing part of its output; bhist does not run
+standard bhist. Run the query again, and check the server log if it recurs.
+.TP
+.B must run on the service host
+A management command was run on another host. Log in to the host named by
+.B LSB_BHIST_ENDPOINT
+and run it there.
+.TP
+.B must be run as root or a cluster administrator
+Run the command as root or a cluster administrator.
+.TP
+.B run this command as root or the service administrator
+start and clean need root or the first cluster administrator.
+.TP
+.B the history database must be rebuilt
+The loader stopped because the event files were truncated or replaced. Rebuild
+the database (see Rebuilding the database).
+.TP
+.B already running
+The service is already running, possibly started by systemd or someone else.
+Nothing to do; use restart to restart it.
+.TP
+.B running ... log: ...
+(the only line printed by a loader or server run in a terminal) Normal; the
+rest of its output goes to the log file shown.
+.SH FILES
+.TP
+.B $LSF_BINDIR/bhist
+The command users run, on any host. Accelerated queries go to the service;
+others run standard bhist.
+.TP
+.B $LSF_BINDIR/bhist-fast
+Sends queries to the service; run by bhist, not directly.
+.TP
+.B $LSF_BINDIR/bhist-standard
+Standard bhist. bhist runs it when acceleration is not used, and the service
+uses it to format output.
+.TP
+.B $LSF_SERVERDIR/bhist-speedup-loader
+Imports the event files into the database and follows new events; runs on the
+service host.
+.TP
+.B $LSF_SERVERDIR/bhist-speedup-server
+Answers queries from bhist; runs on the service host.
+.TP
+.B $LSF_BINDIR/bhist-admin
+Starts, stops, and inspects the loader and server.
+.TP
+.B $LSF_BINDIR/bhist-speedup-setup
+Installs or removes the systemd services.
+.TP
+.B $LSF_ENVDIR/lsb.hist
+Configuration, read on all hosts; see
+.BR lsb.hist (5).
+.TP
+.B /etc/systemd/system/volclava-bhist-loader.service
+.PD 0
+.TP
+.B /etc/systemd/system/volclava-bhist-server.service
+.PD
+The systemd services created by bhist-speedup-setup.
+.TP
+.BI $LSF_LOGDIR/bhist-speedup-loader.log. host
+.PD 0
+.TP
+.BI $LSF_LOGDIR/bhist-speedup-server.log. host
+.PD
+Logs.
+.TP
+The file named by LSB_BHIST_DB_PATH
+The database.
+.SH SECURITY
+Traffic between bhist and the server is not authenticated, and the server
+does not verify who is querying: anyone who can reach the endpoint can read
+all job history. Open the port only to the trusted cluster network.
+.SH SEE ALSO
+.BR lsb.hist (5),
+.BR bhist (1)
