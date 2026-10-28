@@ -1003,6 +1003,7 @@ extern int                    maxAcctArchiveNum;
 extern int                    acctArchiveInDays;
 extern int                    acctArchiveInSize;
 extern int                    resourcePerTask;
+extern int                    lsbForkRotate;
 extern int                    lsbModifyAllJobs;
 extern float                  cpuTimeFactor;
 extern float                  runTimeFactor;
@@ -1502,6 +1503,10 @@ extern void                 replay_requeuejob(struct jData *);
 extern int                  init_log(void);
 extern void                 switchELog(void);
 extern int                  switch_log(void);
+extern void                 switchLogChildReaped(pid_t, int);
+extern void                 switchLogCheckChild(void);
+extern int                  switchLogChildRunning(void);
+extern void                 switchLogKillChild(void);
 extern void                 checkAcctLog(void);
 extern int                  switchAcctLog(void);
 extern void                 logJobInfo(struct submitReq *, struct jData *,

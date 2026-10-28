@@ -85,6 +85,8 @@ int    maxAcctArchiveNum = -1;
 int    acctArchiveInDays = -1;
 int    acctArchiveInSize = -1;
 int    resourcePerTask = 0;
+/* LSB_FORK_ROTATE: let a child process run switch_log() */
+int    lsbForkRotate = FALSE;
 float  cpuTimeFactor = DEF_CPU_TIME_FACTOR;
 float  runTimeFactor = DEF_RUN_TIME_FACTOR;
 float  runJobFactor = DEF_RUN_JOB_FACTOR;
@@ -292,6 +294,7 @@ int
 main (int argc, char **argv)
 {
     struct timeval timeout;
+    struct timeval epollTimeout;
     int nready = 0;
     int *readyChans;
     int i;
@@ -464,6 +467,15 @@ main (int argc, char **argv)
     for (;;) {
         time_t qmbdElapsedTime = 0;
 
+        /*
+         * Publish the new event file as soon as the switch_log() child
+         * is done.  This is deliberately the only caller: committing a
+         * switch runs stat(), rename() and unlink(), all of which
+         * clobber errno, so it must not sit between a system call and
+         * the errno check that belongs to it.
+         */
+        switchLogCheckChild();
+
         now = time(0);
         if (qmbdStartedTime > 0) {
             qmbdElapsedTime = now - qmbdStartedTime;
@@ -498,7 +510,19 @@ main (int argc, char **argv)
             hsKeeping = FALSE;
             timeout.tv_sec = 0;
         }
-        nready = chanEpoll_(&readyChans, &timeout);
+        /*
+         * SIGCHLD interrupts epoll_wait(), so the completion flag is
+         * normally seen immediately; while a switch child is running the
+         * wait is additionally capped at one second as a backstop.
+         */
+        epollTimeout = timeout;
+        if (switchLogChildRunning() && epollTimeout.tv_sec > 1) {
+            epollTimeout.tv_sec = 1;
+            epollTimeout.tv_usec = 0;
+        }
+
+        nready = chanEpoll_(&readyChans, &epollTimeout);
+
         if (nready < 0) {
             if (errno != EINTR)
                 ls_syslog(LOG_ERR, "\
@@ -1145,8 +1169,11 @@ child_handler (int sig)
     sigaddset(&newmask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &newmask, &oldmask);
 
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
-        ;
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0) {
+        /* keep reaping every child, but remember the result of the
+         * switch_log() child so that the main loop can commit it */
+        switchLogChildReaped((pid_t)pid, LS_STATUS(status));
+    }
 
     sigprocmask(SIG_SETMASK, &oldmask, NULL);
     errno = saveErrno;
@@ -1706,6 +1733,21 @@ initDaemonParams(void)
             || strcasecmp(
                 daemonParams[LSB_MOD_ALL_JOBS].paramValue, "yes") == 0)) {
         lsbModifyAllJobs = TRUE;
+    }
+
+    /*
+     * LSB_FORK_ROTATE: let a child process run switch_log().  Anything
+     * that is not Y/yes leaves the synchronous behaviour in place.
+     */
+    if (daemonParams[LSB_FORK_ROTATE].paramValue != NULL) {
+        char *val = daemonParams[LSB_FORK_ROTATE].paramValue;
+
+        if (strcasecmp(val, "y") == 0 || strcasecmp(val, "yes") == 0)
+            lsbForkRotate = TRUE;
+        else if (strcasecmp(val, "n") != 0 && strcasecmp(val, "no") != 0)
+            ls_syslog(LOG_ERR, "\
+%s: unrecognizable value <%s> for LSB_FORK_ROTATE in lsf.conf; using the \
+default N", __func__, val);
     }
 
     if (daemonParams[LSB_PTILE_PACK].paramValue != NULL

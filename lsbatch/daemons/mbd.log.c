@@ -21,6 +21,9 @@
 #include "mbd.fairshare.h"
 #include "mbd.rsrclimit.h"
 #include <sched.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 
 #define NL_SETN         10
 
@@ -98,6 +101,119 @@ time_t                  dieTime;
 static char             elogFname[MAXFILENAMELEN];
 static char             jlogFname[MAXFILENAMELEN];
 
+/*
+ * LSB_FORK_ROTATE: switch_log() executed by a forked child process.
+ *
+ * The parent creates lsb.events.tmp and lsb.events.delta, routes new
+ * events to lsb.events.delta and forks a switch child.  The child owns
+ * the expensive part of the switch: scanning the now frozen lsb.events,
+ * building the new baseline and lsb.events.0, rotating
+ * .N -> .N+1 ... .0 -> .1 and rebuilding lsb.events.index.  The parent
+ * keeps serving requests and, once the child is reaped, appends
+ * lsb.events.delta to lsb.events.tmp and publishes it as lsb.events.
+ *
+ * Recovery never needs a transaction id, a state machine or an append
+ * offset in the event files: the state of a round can be derived from
+ * what is on disk, because the order in which the files are created and
+ * removed is fixed.
+ *
+ *   1. lsb.events.tmp is always created before lsb.events.delta.
+ *   2. lsb.events.0 is written before any lsb.events.tmp content and
+ *      disappears only in the very last rename of the rotation.
+ *   3. lsb.events.tmp is complete on disk (READY) strictly before the
+ *      first archive rename.
+ *   4. switchLogPublish() switches the write route back to lsb.events
+ *      before it unlinks lsb.events.delta.
+ *
+ * From those four facts:
+ *
+ *   - a placeholder header (no digits) on .tmp  => baseline unfinished
+ *   - a header with digits on .tmp              => baseline READY
+ *   - .0 exists                                 => rotation unfinished
+ *   - no .tmp but a leftover .delta             => the publish succeeded
+ *
+ * The only fact that cannot be derived is the length of .tmp before the
+ * delta was appended, which a retry has to truncate back to.  It is
+ * recorded as a second number in the header of lsb.events.delta, a file
+ * that is never published and has no reader besides this code, so no
+ * published event file changes format.  See switchLogRecover().
+ */
+
+/* exit codes of the switch child, internal convention only */
+#define SWITCH_CHILD_EXIT_OK            0
+#define SWITCH_CHILD_EXIT_FAIL          1
+
+/* state of the switch, only changed by the main loop */
+#define SWITCH_IDLE                     0
+#define SWITCH_CHILD_RUNNING            1
+#define SWITCH_STALLED                  2
+
+/*
+ * What the caller of switchLogRecover() expects to find on disk.  The
+ * classification and the action never depend on it - only the files
+ * decide - but a mismatch between what a caller expects and what is
+ * there is a signal in its own right (a child that exited 0 behind a
+ * raw baseline is a bug or a lost write, not an interruption) and is
+ * logged as such instead of being quietly repaired.
+ */
+#define RECOVER_EXPECT_ANY              0   /* startup / retry: no expectation */
+#define RECOVER_EXPECT_COMPLETE         1   /* child exited 0: READY, no .0 */
+#define RECOVER_EXPECT_INTERRUPTED      2   /* child failed: anything partial */
+
+/*
+ * A switch child that has not been reaped after this many seconds is
+ * considered hung (a blocked NFS operation is the realistic cause) and
+ * is killed, so that the round can be recovered instead of keeping the
+ * delta file growing forever.  The limit is deliberately far above a
+ * normal run: the largest event file seen on a volclava cluster is a few
+ * hundred MB, and LSF switches a 2.2 GB file in about two minutes, so an
+ * hour can only mean a hung child.
+ */
+#define SWITCH_CHILD_MAX_RUNTIME        3600
+
+/* the placeholder header of a freshly built baseline file; it is
+ * overwritten with the history seek position once the baseline is done */
+#define ELOG_BASELINE_HEADER    "#                                     \n"
+
+static char             tmpElogFname[MAXFILENAMELEN];   /* lsb.events.tmp: new baseline under construction */
+static char             event0Fname[MAXFILENAMELEN];     /* lsb.events.0: archive segment before rotation */
+static char             deltaElogFname[MAXFILENAMELEN];  /* lsb.events.delta: events logged while a child runs */
+
+/*
+ * The single event write route: while a switch is in flight every new
+ * event goes to lsb.events.delta, never to both files.
+ */
+static char            *elogWriteTarget = elogFname;
+
+static int              switchState = SWITCH_IDLE;  /* SWITCH_*, only changed by the main loop */
+static time_t           switchStartTime;    /* frozen before the fork */
+
+/*
+ * Filled in by the SIGCHLD handler.  switchChildPid is only written by
+ * the main loop while SIGCHLD is blocked; switchChildDone is written
+ * last, so a set flag implies a valid status.
+ */
+static volatile pid_t          switchChildPid = 0;
+static volatile sig_atomic_t   switchChildDone = 0;
+static volatile sig_atomic_t   switchChildStatus = 0;
+
+static void             switchLogRecover(int);
+static int              forkSwitchLog(void);
+static int              switchLogPrepare(void);
+static void             switchLogAbortPrepare(void);
+static void             switchLogChildMain(void);
+static void             switchLogReportStalled(const char *);
+static int              elogHeaderNumbers(const char *, long *, long *);
+static int              deltaRecordBaselineEnd(off_t);
+static int              appendDeltaTo(const char *, off_t, off_t *);
+static int              trimToLastNewline(const char *, off_t *);
+static void             switchLogDropRound(const char *);
+static int              switchLogRollback(void);
+static int              switchLogRollForward(void);
+static int              switchLogPublish(const char *);
+static int              scanBaselineEvents(FILE *, FILE *, char *, int);
+static int              putEventRecTo(FILE *, struct eventRec *, int, time_t);
+
 static struct eventRec *logPtr;
 
 static int              logLoadIndex = TRUE;
@@ -118,8 +234,9 @@ static void    initHostCtrlTable(void);
 static void    destroyHostCtrlTable(void);
 static void    destroyHostCtrlEvent(void *);
 static void    saveHostCtrlEvent(struct hostCtrlLog *, const time_t);
-static void    writeHostCtrlEvent(void);
+static void    writeHostCtrlEvent(FILE *);
 static void    log_hostStatusAtSwitch(const struct hostCtrlEvent *);
+static int     log_hostStatusAtSwitchTo(FILE *, const struct hostCtrlEvent *);
 
 struct queueCtrlEvent {
     time_t                 time;
@@ -134,8 +251,9 @@ static void    destroyQueueCtrlTable(void);
 static void    destroyQueueCtrlEvent(void *);
 static void    saveQueueCtrlEvent(struct queueCtrlLog *, const time_t);
 static void    queueTableUpdate(hTab *, struct queueCtrlLog *);
-static void    writeQueueCtrlEvent(void);
+static void    writeQueueCtrlEvent(FILE *);
 static void    log_queueStatusAtSwitch(const struct queueCtrlEvent *);
+static int     log_queueStatusAtSwitchTo(FILE *, const struct queueCtrlEvent *);
 
 extern time_t lsb_getAcctFileTime(char *);
 
@@ -164,6 +282,13 @@ init_log(void)
             daemonParams[LSB_SHAREDIR].paramValue);
 
     sprintf(jlogFname, "%s/logdir/lsb.acct",
+            daemonParams[LSB_SHAREDIR].paramValue);
+
+    sprintf(tmpElogFname, "%s/logdir/lsb.events.tmp",
+            daemonParams[LSB_SHAREDIR].paramValue);
+    sprintf(event0Fname, "%s/logdir/lsb.events.0",
+            daemonParams[LSB_SHAREDIR].paramValue);
+    sprintf(deltaElogFname, "%s/logdir/lsb.events.delta",
             daemonParams[LSB_SHAREDIR].paramValue);
 
     sprintf(dirbuf, "%s/logdir", daemonParams[LSB_SHAREDIR].paramValue);
@@ -209,6 +334,17 @@ init_log(void)
     }
 
     getElogLock();
+
+    /*
+     * Recover a switch a previous mbatchd left unfinished.  This must
+     * run with the event log lock held (two masters must not recover in
+     * parallel) and strictly before the replay below and before the
+     * synchronous switch_log()/switchELog() at the end of init_log():
+     * replay only reads lsb.events, so delta events would silently be
+     * lost, and the synchronous switch truncates lsb.events.tmp and
+     * lsb.events.0 without a second look.
+     */
+    switchLogRecover(RECOVER_EXPECT_ANY);
 
     chuser(managerId);
 
@@ -2143,16 +2279,21 @@ openEventFile(char *fname)
 {
     long pos;
     sigset_t newmask, oldmask;
+    /*
+     * Single write route: while a switch child is running the active
+     * event file is frozen and every new event goes to lsb.events.delta.
+     */
+    char *target = elogWriteTarget;
 
     chuser(managerId);
 
     sigemptyset(&newmask);
     sigaddset(&newmask, SIGCHLD);
     sigprocmask(SIG_BLOCK, &newmask, &oldmask);
-    if ((log_fp = fopen(elogFname, "a+")) == NULL) {
+    if ((log_fp = fopen(target, "a+")) == NULL) {
         sigprocmask(SIG_SETMASK, &oldmask, NULL);
         chuser(batchId);
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", elogFname);
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", target);
         return -1;
     }
     sigprocmask(SIG_SETMASK, &oldmask, NULL);
@@ -2164,7 +2305,7 @@ openEventFile(char *fname)
         fprintf(log_fp, "#80                                                                            \n");
     }
 
-    chmod(elogFname, 0644);
+    chmod(target, 0644);
     chuser(batchId);
     logPtr = my_calloc(1, sizeof(struct eventRec), __func__);
 
@@ -2229,6 +2370,29 @@ putEventRec1(char *fname)
 
     return(ret);
 
+}
+
+/*
+ * Serialize one event record into an explicitly given stream.
+ *
+ * Unlike putEventRec()/putEventRec1() this neither selects the active
+ * event file nor closes the stream afterwards, so the switch child can
+ * use it to append records directly to lsb.events.tmp.
+ */
+static int
+putEventRecTo(FILE *fp, struct eventRec *rec, int type, time_t eventTime)
+{
+    sprintf(rec->version, "%d", VOLCLAVA_VERSION);
+    rec->type = type;
+    rec->eventTime = eventTime;
+
+    if (lsb_puteventrec(fp, rec) < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL_EMSG_S,
+                  __func__, "lsb_puteventrec", lsb_sysmsg());
+        return -1;
+    }
+
+    return 0;
 }
 
 static void
@@ -2391,14 +2555,74 @@ logFinishedjob(struct jData *job)
 void
 switchELog (void)
 {
-    int ret = 0;
-    if (numRemoveJobs >= maxjobnum) {
-        ret = switch_log();
-        if (ret == 0)
-            numRemoveJobs = 0;
-        else
-            numRemoveJobs = maxjobnum / 2;
+    /*
+     * A child that cannot be reaped is a hung child (an NFS operation
+     * that never returns is the realistic cause).  Kill it so that the
+     * round stops blocking every further rotation; the SIGCHLD path
+     * then classifies the corpse and switchLogRecover() rolls the round
+     * forward or back.  Checked independently of numRemoveJobs, or a
+     * quiet cluster would never notice the hang.
+     */
+    if (switchState == SWITCH_CHILD_RUNNING && switchChildPid > 0
+        && !switchChildDone
+        && time(0) - switchStartTime > SWITCH_CHILD_MAX_RUNTIME) {
+        ls_syslog(LOG_ERR, "\
+%s: switch child pid %d is still running after %d seconds, killing it",
+                  __func__, (int)switchChildPid,
+                  (int)(time(0) - switchStartTime));
+        kill(switchChildPid, SIGKILL);
     }
+
+    if (numRemoveJobs < maxjobnum)
+        return;
+
+    /*
+     * The fork based rotation needs a fully initialized mbatchd; during
+     * replay the switch is always done synchronously.
+     */
+    if (lsbForkRotate && mSchedStage != M_STAGE_REPLAY) {
+
+        /* a stalled round is retried here before anything new starts */
+        if (switchState == SWITCH_STALLED)
+            switchLogRecover(RECOVER_EXPECT_ANY);
+
+        if (forkSwitchLog() == 0) {
+            /*
+             * This round has taken over the current backlog, so the
+             * counter restarts from here and then measures the jobs
+             * cleaned since this switch started, which is exactly the
+             * baseline the next switch has to be decided on.  Clearing
+             * it only when the new file is published would leave it
+             * above MAX_JOB_NUM for the whole child run and make every
+             * following periodicCheck() find the switch busy.
+             */
+            numRemoveJobs = 0;
+        } else {
+            /* busy or not startable: back off instead of re-checking on
+             * every periodicCheck() */
+            numRemoveJobs = numRemoveJobs / 2;
+        }
+        return;
+    }
+
+    /*
+     * The synchronous switch truncates lsb.events.tmp and rewrites
+     * lsb.events.0, so it must never run on top of an unfinished fork
+     * based round.  Unreachable today (lsbForkRotate cannot change at
+     * runtime, a reconfig restarts mbatchd), kept as a guard.
+     */
+    if (switchState != SWITCH_IDLE) {
+        ls_syslog(LOG_ERR, "\
+%s: a fork based switch is in state %d; the synchronous switch is \
+skipped to protect its files", __func__, switchState);
+        numRemoveJobs = numRemoveJobs / 2;
+        return;
+    }
+
+    if (switch_log() == 0)
+        numRemoveJobs = 0;
+    else
+        numRemoveJobs = maxjobnum / 2;
 }
 
 void
@@ -2496,69 +2720,25 @@ Acct_exiterr:
     return (-1);
 }
 
-int
-switch_log(void)
+/*
+ * Scan the active event file and copy every record that is still needed
+ * for state recovery into the new baseline file.
+ *
+ * The caller must have initialized the host/queue control tables and is
+ * responsible for destroying them afterwards.  In child mode (inChild)
+ * no mbdDie() is done: the failure is reported to the caller which then
+ * _exit()s with the proper switch child exit code.
+ *
+ * Returns 0 on success, -1 on failure.
+ */
+static int
+scanBaselineEvents(FILE *efp, FILE *tmpfp, char *tmpfn, int inChild)
 {
-    static char fname[] = "switch_log";
-    static pid_t            eventIndexRebuildPid = 0;
-    char                    tmpfn[MAXFILENAMELEN];
-    int                     i, lineNum = 0, errnoSv;
+    static char             fname[] = "scanBaselineEvents";
+    int                     lineNum = 0;
     LS_LONG_INT             jobId = 0;
-    FILE                   *efp, *tmpfp;
     struct jData           *jp, *jarray;
-    long                   pos;
-    int                    preserved = FALSE;
-    int                    totalEventFile;
-    char                   indexFile[MAXFILENAMELEN];
-    /*
-     * When switch_log is triggered frequently, multiple child processes may simultaneously read and write lsb.event.index. 
-     * It is necessary to ensure that only one child process operates on this index file at any given time.
-     */
-    if (eventIndexRebuildPid != 0 && kill(eventIndexRebuildPid, 0) == 0) {
-        ls_syslog(LOG_DEBUG, "%s: event index rebuild pid=%d still running", __func__, (int)eventIndexRebuildPid);
-        return -2;
-    }
-    sprintf(tmpfn, "%s/logdir/lsb.events",
-            daemonParams[LSB_SHAREDIR].paramValue);
-
-    ls_syslog(LOG_INFO, "\
-%s: switching event log file: %s", __FUNCTION__, tmpfn);
-
-    chuser(managerId);
-
-    if (createEvent0File() == -1) { ;
-        chuser(batchId);
-        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "createEvent0File");
-        goto exiterr;
-    }
-
-    sprintf(tmpfn, "%s/logdir/lsb.events.tmp",
-            daemonParams[LSB_SHAREDIR].paramValue);
-
-    if ((tmpfp = fopen(tmpfn, "w")) == NULL) {
-        chuser(batchId);
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", tmpfn);
-        goto exiterr;
-    }
-
-    if (fchmod(fileno(tmpfp),  0644) != 0) {
-        ls_syslog(LOG_ERR, I18N(6870,"%s: fchmod on %s failed: %m"), fname, tmpfn);/*catgets 6870 */
-    }
-
-    efp = fopen(elogFname, "r");
-    if (efp == NULL) {
-        chuser(batchId);
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", elogFname);
-        FCLOSEUP(&tmpfp);
-        goto exiterr;
-    }
-
-    fprintf(tmpfp, "#                                     \n");
-
-    chuser(batchId);
-
-    initHostCtrlTable();
-    initQueueCtrlTable();
+    int                     preserved = FALSE;
 
     if (lsberrno == LSBE_EOF)
         lsberrno = LSBE_NO_ERROR;
@@ -2572,6 +2752,8 @@ switch_log(void)
                           elogFname, lsb_sysmsg());
 
                 if (lsberrno == LSBE_NO_MEM) {
+                    if (inChild)
+                        return -1;
                     mbdDie(MASTER_MEM);
                 }
 
@@ -2701,16 +2883,88 @@ switch_log(void)
             if (lsb_puteventrec(tmpfp, logPtr) == -1) {
                 ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_MM,
                           fname, "lsb_puteventrec", tmpfn);
-                chuser(managerId);
-                FCLOSEUP(&efp);
-                unlink (tmpfn);
-                chuser(batchId);
-                goto exiterr;
+                return -1;
             }
         }
         jobId = 0;
         preserved = FALSE;
     }
+
+    return 0;
+}
+
+int
+switch_log(void)
+{
+    static char fname[] = "switch_log";
+    static pid_t            eventIndexRebuildPid = 0;
+    char                    tmpfn[MAXFILENAMELEN];
+    int                     i, errnoSv;
+    FILE                   *efp, *tmpfp;
+    long                   pos;
+    int                    totalEventFile;
+    char                   indexFile[MAXFILENAMELEN];
+    /*
+     * When switch_log is triggered frequently, multiple child processes may simultaneously read and write lsb.event.index. 
+     * It is necessary to ensure that only one child process operates on this index file at any given time.
+     */
+    if (eventIndexRebuildPid != 0 && kill(eventIndexRebuildPid, 0) == 0) {
+        ls_syslog(LOG_DEBUG, "%s: event index rebuild pid=%d still running", __func__, (int)eventIndexRebuildPid);
+        return -2;
+    }
+    sprintf(tmpfn, "%s/logdir/lsb.events",
+            daemonParams[LSB_SHAREDIR].paramValue);
+
+    ls_syslog(LOG_INFO, "\
+%s: switching event log file: %s", __FUNCTION__, tmpfn);
+
+    chuser(managerId);
+
+    if (createEvent0File() == -1) { ;
+        chuser(batchId);
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "createEvent0File");
+        goto exiterr;
+    }
+
+    sprintf(tmpfn, "%s/logdir/lsb.events.tmp",
+            daemonParams[LSB_SHAREDIR].paramValue);
+
+    if ((tmpfp = fopen(tmpfn, "w")) == NULL) {
+        chuser(batchId);
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", tmpfn);
+        goto exiterr;
+    }
+
+    if (fchmod(fileno(tmpfp),  0644) != 0) {
+        ls_syslog(LOG_ERR, I18N(6870,"%s: fchmod on %s failed: %m"), fname, tmpfn);/*catgets 6870 */
+    }
+
+    efp = fopen(elogFname, "r");
+    if (efp == NULL) {
+        chuser(batchId);
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", elogFname);
+        FCLOSEUP(&tmpfp);
+        goto exiterr;
+    }
+
+    fprintf(tmpfp, ELOG_BASELINE_HEADER);
+
+    chuser(batchId);
+
+    initHostCtrlTable();
+    initQueueCtrlTable();
+
+    if (scanBaselineEvents(efp, tmpfp, tmpfn, FALSE) < 0) {
+        chuser(managerId);
+        FCLOSEUP(&efp);
+        FCLOSEUP(&tmpfp);
+        unlink (tmpfn);
+        chuser(batchId);
+        destroyHostCtrlTable();
+        destroyQueueCtrlTable();
+        goto exiterr;
+    }
+
     FCLOSEUP(&efp);
 
     chuser(managerId);
@@ -2739,10 +2993,10 @@ switch_log(void)
         goto exiterr;
     }
 
-    writeHostCtrlEvent();
+    writeHostCtrlEvent(NULL);
     destroyHostCtrlTable();
 
-    writeQueueCtrlEvent();
+    writeQueueCtrlEvent(NULL);
     destroyQueueCtrlTable();
 
     if (mSchedStage == M_STAGE_REPLAY)
@@ -2784,6 +3038,1242 @@ Fail to switch lsb.events; see mbatchd error log for details");
     return (-1);
 }
 
+/*
+ * ======================================================================
+ * LSB_FORK_ROTATE implementation
+ * ======================================================================
+ */
+
+/*
+ * Read the two leading numbers of an event file header.
+ *
+ * Every event file starts with a one line '#' comment.  A baseline file
+ * carries the history seek position there once it is complete, and
+ * lsb.events.delta carries the length lsb.events.tmp had before the
+ * merge started (see deltaRecordBaselineEnd()).  Existing readers parse
+ * the header with a single %d/%ld conversion and ignore anything behind
+ * it, which is what makes the second number free.
+ *
+ * @param[in] path: Event file to inspect.
+ * @param[out] first: First header number, untouched if absent; may be NULL.
+ * @param[out] second: Second header number, untouched if absent; may be NULL.
+ * @return: count of numbers present (0, 1 or 2), -1 if the file cannot
+ *          be opened or does not start with '#'.
+ */
+static int
+elogHeaderNumbers(const char *path, long *first, long *second)
+{
+    FILE *fp;
+    long  a = 0;
+    long  b = 0;
+    char  ch = 0;
+    int   cc;
+
+    if ((fp = fopen(path, "r")) == NULL)
+        return -1;
+
+    /* %c%ld %ld stops at the first unconvertible field, so the return
+     * value doubles as "how much of the header is filled in" */
+    cc = fscanf(fp, "%c%ld %ld", &ch, &a, &b);
+    FCLOSEUP(&fp);
+
+    if (cc < 1 || ch != '#')
+        return -1;
+
+    if (cc >= 2 && first != NULL)
+        *first = a;
+    if (cc >= 3 && second != NULL)
+        *second = b;
+
+    return cc - 1;
+}
+
+/*
+ * Record in the delta header the length its merge target had before the
+ * merge started, so that an interrupted merge can be retried without
+ * duplicating events.  The target is lsb.events.tmp on the forward path
+ * and lsb.events on a rollback; the two meanings cannot clash, because
+ * a round is only merged in one direction (READY baselines go forward,
+ * raw ones are rolled back).
+ *
+ * The value describes the end of the target before the merge, not the
+ * progress of the merge, so it stays valid for every retry of the same
+ * round even while the delta file keeps growing.  It must be on disk
+ * before the first byte is appended, otherwise recovery could find an
+ * unmarked delta next to a half merged target and append it twice.
+ *
+ * lsb.events.delta is never published and has no reader besides this
+ * file, so writing into its header changes no published file format.
+ *
+ * @param[in] baselineEnd: Length of the merge target before the merge.
+ * @return: 0 on success, -1 on failure.
+ */
+static int
+deltaRecordBaselineEnd(off_t baselineEnd)
+{
+    static char fname[] = "deltaRecordBaselineEnd";
+    char        buf[64];
+    int         len;
+    int         fd;
+
+    /* the header openEventFile() wrote is 80 bytes wide; "#80 " plus a
+     * decimal off_t cannot reach the terminating newline */
+    len = sprintf(buf, "#80 %lld", (long long)baselineEnd);
+
+    if ((fd = open(deltaElogFname, O_WRONLY)) < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "open",
+                  deltaElogFname);
+        return -1;
+    }
+
+    if (pwrite(fd, buf, len, 0) != len || fsync(fd) < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "pwrite",
+                  deltaElogFname);
+        close(fd);
+        return -1;
+    }
+
+    close(fd);
+    return 0;
+}
+
+/*
+ * Append the event records of lsb.events.delta to an event file.
+ * Shared by the normal commit, by the rollback onto the old active file
+ * and by the roll forward of a recovered round, so that the truncation,
+ * the header skip and the half line repair exist exactly once.
+ *
+ * Only complete lines are copied: a crash or a full disk can leave the
+ * delta file ending in half a record, and such a fragment must never
+ * reach a file that keeps being appended to, or it would be glued to
+ * the next record and destroy that one too.  The file is read twice:
+ * one pass to find the end of the last complete record, one pass to
+ * copy up to it.  A delta without even a complete header line holds no
+ * record and is treated as empty.
+ *
+ * The caller must run in the main loop, where no event handler can grow
+ * the delta file while it is read, and must already be the manager.
+ *
+ * @param[in] dstPath: Event file to append to.
+ * @param[in] truncateTo: Cut dstPath back to this length first; -1 to
+ *                        append at the current end.
+ * @param[out] copied: Bytes appended; may be NULL.
+ * @return: 0 on success, -1 on failure.
+ */
+static int
+appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
+{
+    static char fname[] = "appendDeltaTo";
+    FILE       *dfp = NULL;
+    FILE       *dstfp = NULL;
+    char        buf[MSGSIZE];
+    off_t       total = 0;
+    off_t       recordsEnd = -1;
+    off_t       pos;
+    size_t      cc;
+
+    if (copied != NULL)
+        *copied = 0;
+
+    if ((dfp = fopen(deltaElogFname, "r")) == NULL) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen",
+                  deltaElogFname);
+        return -1;
+    }
+
+    /*
+     * Skip the delta header.  fgets() keeps the newline, so a line
+     * without one means the header itself was cut off and the file
+     * holds no complete record at all.
+     */
+    if (fgets(buf, sizeof(buf), dfp) == NULL
+        || strchr(buf, '\n') == NULL) {
+        FCLOSEUP(&dfp);
+        return 0;
+    }
+
+    /* pass one: find the end of the last complete record.  memrchr()
+     * is a GNU extension, so scan the block backwards by hand. */
+    pos = ftell(dfp);
+    while ((cc = fread(buf, 1, sizeof(buf), dfp)) > 0) {
+        size_t i;
+
+        for (i = cc; i > 0; i--) {
+            if (buf[i - 1] == '\n') {
+                recordsEnd = pos + (off_t)i;
+                break;
+            }
+        }
+        pos += cc;
+    }
+
+    if (ferror(dfp)) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fread",
+                  deltaElogFname);
+        FCLOSEUP(&dfp);
+        return -1;
+    }
+
+    /* records only below the header: nothing to merge */
+    if (recordsEnd < 0) {
+        FCLOSEUP(&dfp);
+        return 0;
+    }
+
+    rewind(dfp);
+    if (fgets(buf, sizeof(buf), dfp) == NULL) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fgets",
+                  deltaElogFname);
+        FCLOSEUP(&dfp);
+        return -1;
+    }
+
+    if ((dstfp = fopen(dstPath, "r+")) == NULL) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", dstPath);
+        FCLOSEUP(&dfp);
+        return -1;
+    }
+
+    if (truncateTo >= 0 && ftruncate(fileno(dstfp), truncateTo) < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "ftruncate",
+                  dstPath);
+        goto append_failed;
+    }
+
+    if (fseek(dstfp, 0, SEEK_END) != 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fseek", dstPath);
+        goto append_failed;
+    }
+
+    /* pass two: plain byte copy up to the last complete record */
+    pos = ftell(dfp);
+    while (pos < recordsEnd) {
+        size_t want = sizeof(buf);
+
+        if ((off_t)want > recordsEnd - pos)
+            want = (size_t)(recordsEnd - pos);
+
+        if ((cc = fread(buf, 1, want, dfp)) == 0) {
+            ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fread",
+                      deltaElogFname);
+            goto append_failed;
+        }
+
+        if (fwrite(buf, 1, cc, dstfp) != cc) {
+            ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fwrite",
+                      dstPath);
+            goto append_failed;
+        }
+
+        pos += cc;
+        total += cc;
+    }
+    FCLOSEUP(&dfp);
+
+    if (fflush(dstfp) != 0 || fsync(fileno(dstfp)) < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", dstPath);
+        FCLOSEUP(&dstfp);
+        return -1;
+    }
+
+    if (FCLOSEUP(&dstfp) < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fclose", dstPath);
+        return -1;
+    }
+
+    if (copied != NULL)
+        *copied = total;
+
+    return 0;
+
+append_failed:
+    if (dfp != NULL)
+        FCLOSEUP(&dfp);
+    if (dstfp != NULL)
+        FCLOSEUP(&dstfp);
+    return -1;
+}
+
+/*
+ * Give up a round and remove everything it created.  Only legal while
+ * the archives have not been rotated: the old active file is then still
+ * complete and simply stays the event log.
+ *
+ * @param[in] why: Short reason for the log line.
+ */
+static void
+switchLogDropRound(const char *why)
+{
+    chuser(managerId);
+    unlink(deltaElogFname);
+    unlink(tmpElogFname);
+    unlink(event0Fname);
+    chuser(batchId);
+
+    elogWriteTarget = elogFname;
+    switchState = SWITCH_IDLE;
+
+    ls_syslog(LOG_INFO, "\
+%s: dropped the unfinished switch (%s); %s is unchanged and remains the \
+valid event log", __func__, why, elogFname);
+}
+
+/*
+ * Trim a file so that it ends right behind its last newline.  A power
+ * loss can cut the page cache tail of a file that was never fsynced,
+ * leaving half a record at the end; anything appended afterwards would
+ * be glued to that fragment and destroy one more record.  Scanning runs
+ * backwards in blocks, so only the tail of a large file is read.
+ *
+ * @param[in] path: File to trim in place.
+ * @param[out] size: Resulting file size; may be NULL.
+ * @return: 0 on success, -1 on failure with the file unchanged.
+ */
+static int
+trimToLastNewline(const char *path, off_t *size)
+{
+    static char fname[] = "trimToLastNewline";
+    char        buf[MSGSIZE];
+    struct stat st;
+    off_t       end;
+    int         fd;
+
+    if ((fd = open(path, O_RDWR)) < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "open", path);
+        return -1;
+    }
+
+    if (fstat(fd, &st) < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fstat", path);
+        close(fd);
+        return -1;
+    }
+
+    for (end = st.st_size; end > 0;) {
+        size_t want = sizeof(buf);
+        ssize_t cc;
+        size_t  i;
+
+        if ((off_t)want > end)
+            want = (size_t)end;
+
+        cc = pread(fd, buf, want, end - (off_t)want);
+        if (cc != (ssize_t)want) {
+            ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "pread", path);
+            close(fd);
+            return -1;
+        }
+
+        for (i = want; i > 0; i--) {
+            if (buf[i - 1] == '\n')
+                break;
+        }
+
+        if (i > 0) {
+            end = end - (off_t)want + (off_t)i;
+            break;
+        }
+        end -= (off_t)want;
+    }
+
+    if (end != st.st_size) {
+        ls_syslog(LOG_WARNING, "\
+%s: %s ends in half a record; truncating %lld bytes back to the last \
+complete one", fname, path, (long long)(st.st_size - end));
+
+        if (ftruncate(fd, end) < 0 || fsync(fd) < 0) {
+            ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "ftruncate",
+                      path);
+            close(fd);
+            return -1;
+        }
+    }
+
+    close(fd);
+    if (size != NULL)
+        *size = end;
+    return 0;
+}
+
+/*
+ * Roll a round back onto the old active file.  Used when the baseline is
+ * not complete, which by construction means no archive has been renamed
+ * yet, so the only thing to rescue are the events logged to
+ * lsb.events.delta while the child was running.
+ *
+ * The merge back must survive a crash in its own middle, exactly like
+ * the forward merge: the length of lsb.events - trimmed first, its
+ * unsynced tail may have died with the power - is recorded in the delta
+ * header before the first append, and a retry truncates back to it.
+ * The second header number cannot clash with the forward meaning: a
+ * round is rolled back only while .tmp is raw, and the forward merge
+ * only ever runs on a READY .tmp, so each round uses one meaning.
+ *
+ * @return: 0 on success, -1 if the delta events could not be saved, in
+ *          which case nothing is deleted.
+ */
+static int
+switchLogRollback(void)
+{
+    static char fname[] = "switchLogRollback";
+    struct stat st;
+    long        recorded = -1;
+    off_t       truncateTo = -1;
+    off_t       copied = 0;
+
+    chuser(managerId);
+
+    if (stat(deltaElogFname, &st) == 0 && st.st_size > 0) {
+
+        if (elogHeaderNumbers(deltaElogFname, NULL, &recorded) >= 2) {
+            /* a previous rollback attempt died half way; cut its
+             * partial append off before appending the whole delta */
+            truncateTo = (off_t)recorded;
+        } else {
+            if (trimToLastNewline(elogFname, &truncateTo) < 0
+                || deltaRecordBaselineEnd(truncateTo) < 0) {
+                chuser(batchId);
+                ls_syslog(LOG_ERR, "\
+%s: cannot prepare %s for the merge back; no file is deleted, recovery \
+is retried later", fname, elogFname);
+                return -1;
+            }
+        }
+
+        if (appendDeltaTo(elogFname, truncateTo, &copied) < 0) {
+            chuser(batchId);
+            ls_syslog(LOG_ERR, "\
+%s: cannot append %s back to %s; no file is deleted, recovery is \
+retried later", fname, deltaElogFname, elogFname);
+            return -1;
+        }
+    }
+
+    chuser(batchId);
+
+    if (copied > 0)
+        ls_syslog(LOG_INFO, "\
+%s: %lld bytes of delta events merged back into %s", fname,
+                  (long long)copied, elogFname);
+
+    switchLogDropRound("baseline incomplete");
+    return 0;
+}
+
+/*
+ * Publish lsb.events.tmp as the new active event file and close the
+ * round.  The rename is the single atomic commit point of a switch:
+ * before it lsb.events is the complete old file, after it the complete
+ * new one, so a crash can never leave a half valid active file.
+ *
+ * The write route must be back on lsb.events before the delta file is
+ * unlinked; recovery relies on that order when it treats a leftover
+ * delta without a .tmp as proof of a completed publish.
+ *
+ * @param[in] fname: Caller name for the log lines.
+ * @return: 0 on success, -1 on failure with the old active file intact.
+ */
+static int
+switchLogPublish(const char *fname)
+{
+    chuser(managerId);
+
+    if (rename(tmpElogFname, elogFname) < 0) {
+        chuser(batchId);
+        ls_syslog(LOG_ERR, I18N_FUNC_S_S_FAIL_M, fname, "rename",
+                  tmpElogFname, elogFname);
+        return -1;
+    }
+    chmod(elogFname, 0644);
+
+    /* the new active file is live, route the events back to it */
+    elogWriteTarget = elogFname;
+
+    if (unlink(deltaElogFname) < 0 && errno != ENOENT)
+        ls_syslog(LOG_WARNING, I18N_FUNC_S_FAIL_M, fname, "unlink",
+                  deltaElogFname);
+
+    chuser(batchId);
+    switchState = SWITCH_IDLE;
+
+    /*
+     * numRemoveJobs is deliberately not touched here: it was cleared
+     * when this round was started and has been counting the jobs
+     * cleaned since then, which the next switch has to see.
+     */
+    return 0;
+}
+
+/*
+ * Finish a round whose baseline is complete: continue the archive
+ * rotation if it stopped half way, merge the delta events and publish.
+ * This is the normal commit path as well as the recovery one - a child
+ * that exited cleanly simply arrives here with the rotation already
+ * done, so the rename loop below is skipped.
+ *
+ * No recorded rotation progress is needed.  renameElogFiles() starts at
+ * the first archive number that does not exist and renames downwards,
+ * and an interrupted rotation leaves exactly one gap in .1...N plus the
+ * still existing .0, so the scan resumes right at the gap.  An archive
+ * an administrator removed by hand gives the same result as it would on
+ * a normal round.
+ *
+ * Unlike the normal path, the rotation runs in the main process here: a
+ * round that died at the start of the rotation can block the main loop
+ * for the remaining renames.  Accepted - recovery is rare, and a slow
+ * recovery is still better than the inconsistent archive set that
+ * re-rotating from scratch would produce.
+ *
+ * @return: 0 on success, -1 on failure with every file left in place.
+ */
+static int
+switchLogRollForward(void)
+{
+    static char fname[] = "switchLogRollForward";
+    char        indexFile[MAXFILENAMELEN];
+    struct stat st;
+    long        baselineEnd = -1;
+    off_t       truncateTo = -1;
+    off_t       copied = 0;
+    int         totalEventFile;
+
+    chuser(managerId);
+
+    /* the rotation is unfinished as long as the archive segment exists */
+    if (stat(event0Fname, &st) == 0) {
+
+        ls_syslog(LOG_INFO, "\
+%s: finishing the archive rotation of an interrupted switch", fname);
+
+        if ((totalEventFile = renameElogFiles()) <= 0) {
+            chuser(batchId);
+            ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "renameElogFiles");
+            return -1;
+        }
+
+        sprintf(indexFile, "%s/logdir/%s",
+                daemonParams[LSB_SHAREDIR].paramValue,
+                LSF_JOBIDINDEX_FILENAME);
+
+        chuser(managerId);
+        if (updateJobIdIndexFile(indexFile, elogFname, totalEventFile) < 0)
+            ls_syslog(LOG_ERR, "\
+%s: updateJobIdIndexFile(%s) failed: %s; the next switch rebuilds it",
+                      fname, indexFile, lsb_sysmsg());
+    }
+
+    /*
+     * Cut a possibly half merged delta off the baseline before appending
+     * the whole delta again.  Without the second header number no merge
+     * has started yet, so the current length of .tmp is the baseline
+     * end; record it now so that a crash inside this very merge can be
+     * retried the same way.
+     */
+    if (stat(deltaElogFname, &st) == 0 && st.st_size > 0) {
+
+        if (elogHeaderNumbers(deltaElogFname, NULL, &baselineEnd) >= 2) {
+            truncateTo = (off_t)baselineEnd;
+        } else {
+            struct stat tmpSt;
+
+            if (stat(tmpElogFname, &tmpSt) < 0
+                || deltaRecordBaselineEnd(tmpSt.st_size) < 0) {
+                chuser(batchId);
+                ls_syslog(LOG_ERR, "\
+%s: cannot record the merge point in %s; no file is deleted, recovery \
+is retried later", fname, deltaElogFname);
+                return -1;
+            }
+        }
+
+        if (appendDeltaTo(tmpElogFname, truncateTo, &copied) < 0) {
+            chuser(batchId);
+            ls_syslog(LOG_ERR, "\
+%s: cannot merge %s into %s; no file is deleted, recovery is retried \
+later", fname, deltaElogFname, tmpElogFname);
+            return -1;
+        }
+    }
+
+    chuser(batchId);
+
+    if (switchLogPublish(fname) < 0)
+        return -1;
+
+    ls_syslog(LOG_INFO, "\
+%s: %s published, %lld bytes of delta events merged", fname, elogFname,
+              (long long)copied);
+    return 0;
+}
+
+/*
+ * Decide what an interrupted round left behind and finish or undo it.
+ *
+ * This is the single detection and recovery entry point.  It runs at
+ * startup (after the event log lock is held and before replay or the
+ * synchronous switch can touch the leftover files), after a switch
+ * child failed, and before a new round starts while a previous one is
+ * stalled.  Every failure path elsewhere only reports its error and
+ * keeps the scene; the classification lives here, derived entirely from
+ * what is on disk (see the facts at the top of this section).
+ *
+ *   .tmp   .delta  .0   meaning                       action
+ *   -----  ------  ---  ----------------------------  ------------------
+ *   -      -       -    nothing happened              none
+ *   raw    yes     any  baseline unfinished           roll back
+ *   READY  yes     any  baseline done                 roll forward
+ *   -      yes     -    publish already succeeded     drop the delta
+ *   raw    -       any  dead round, no events at risk drop the files
+ *   READY  -       yes  delta lost, archives intact   drop the files
+ *   READY  -       -    delta lost, archives rotated  publish if same
+ *                                                     generation, else
+ *                                                     drop
+ *   -      -       yes  synchronous switch died       drop the .0
+ *
+ * The two "delta lost" lines are the only ones needing an argument:
+ * without a delta the events of the switch window exist nowhere, and
+ * since .tmp is only the compressed form of the old active file,
+ * publishing and deleting it lose exactly the same records.  The choice
+ * is made on archive consistency - once the rotation ran, publishing
+ * avoids archiving the same history segment twice - and on generation
+ * safety: the active file is frozen while a round runs, so a legitimate
+ * baseline is never older than lsb.events; a .tmp with an older mtime
+ * is a stale leftover and publishing it would turn the event log back
+ * in time.
+ *
+ * A stat() failing with anything but ENOENT means the log directory
+ * cannot be trusted at this moment, not that a file is absent; the
+ * round is then left untouched and judged again on the next call.
+ *
+ * @param[in] expect: RECOVER_EXPECT_* - what the caller believes it
+ *                    should find.  Never changes the action, only the
+ *                    severity of the report when the files disagree.
+ */
+static void
+switchLogRecover(int expect)
+{
+    static char fname[] = "switchLogRecover";
+    struct stat tmpSt, activeSt;
+    long        histPos = -1;
+    int         haveTmp, haveDelta, haveZero;
+    int         ready;
+    int         saveErrno;
+    int         asExpected;
+
+    /* the files still belong to a living child */
+    if (switchState == SWITCH_CHILD_RUNNING)
+        return;
+
+    chuser(managerId);
+
+    errno = 0;
+    haveTmp = (stat(tmpElogFname, &tmpSt) == 0);
+    saveErrno = errno;
+    if (!haveTmp && saveErrno != ENOENT)
+        goto unreadable;
+
+    errno = 0;
+    haveDelta = (stat(deltaElogFname, &tmpSt) == 0);
+    saveErrno = errno;
+    if (!haveDelta && saveErrno != ENOENT)
+        goto unreadable;
+
+    errno = 0;
+    haveZero = (stat(event0Fname, &tmpSt) == 0);
+    saveErrno = errno;
+    if (!haveZero && saveErrno != ENOENT)
+        goto unreadable;
+
+    chuser(batchId);
+
+    /* nothing left over: the only state a complete round never shows */
+    if (!haveTmp && !haveDelta && !haveZero) {
+        if (expect == RECOVER_EXPECT_COMPLETE)
+            ls_syslog(LOG_ERR, "\
+%s: the switch child exited 0 but left no files at all; %s and %s are \
+gone, the round is lost and %s stays the event log", fname,
+                      tmpElogFname, deltaElogFname, elogFname);
+        switchState = SWITCH_IDLE;
+        elogWriteTarget = elogFname;
+        return;
+    }
+
+    /* READY means the baseline carries its header numbers */
+    chuser(managerId);
+    ready = haveTmp && (elogHeaderNumbers(tmpElogFname, &histPos, NULL) >= 1);
+    chuser(batchId);
+
+    /*
+     * Compare what is there with what the caller expected.  The action
+     * below is chosen from the files alone; the expectation only
+     * decides how loudly the situation is reported.
+     */
+    switch (expect) {
+        case RECOVER_EXPECT_COMPLETE:
+            asExpected = (ready && haveDelta && !haveZero);
+            break;
+        case RECOVER_EXPECT_INTERRUPTED:
+            asExpected = TRUE;      /* any partial state is legitimate */
+            break;
+        default:
+            asExpected = FALSE;     /* leftovers at startup are always news */
+            break;
+    }
+
+    if (!asExpected) {
+        if (expect == RECOVER_EXPECT_COMPLETE)
+            ls_syslog(LOG_ERR, "\
+%s: the switch child exited 0 but its files do not look complete \
+(tmp=%s delta=%s .0=%s); this is a child bug or a lost write, the round \
+is handled from what is on disk", fname,
+                      !haveTmp ? "missing" : ready ? "ready" : "raw",
+                      haveDelta ? "yes" : "no",
+                      haveZero ? "yes" : "no");
+        else
+            ls_syslog(LOG_WARNING, "\
+%s: an interrupted event log switch left files behind (%s%s%s); \
+recovering", fname,
+                      haveTmp ? "tmp " : "",
+                      haveDelta ? "delta " : "",
+                      haveZero ? ".0" : "");
+    }
+
+    if (!haveTmp) {
+
+        if (haveDelta) {
+            /*
+             * .tmp is created before .delta and consumed by the rename
+             * that publishes it, so delta-without-tmp can only mean the
+             * publish succeeded and only the cleanup was lost.
+             */
+            chuser(managerId);
+            if (unlink(deltaElogFname) < 0 && errno != ENOENT)
+                ls_syslog(LOG_WARNING, I18N_FUNC_S_FAIL_M, fname,
+                          "unlink", deltaElogFname);
+            if (haveZero)
+                unlink(event0Fname);
+            chuser(batchId);
+            switchState = SWITCH_IDLE;
+            ls_syslog(LOG_INFO, "\
+%s: the previous switch had already published %s; leftover delta removed",
+                      fname, elogFname);
+            return;
+        }
+
+        /* only .0: a synchronous switch died before its rotation; the
+         * next createEvent0File() rebuilds it from scratch */
+        chuser(managerId);
+        unlink(event0Fname);
+        chuser(batchId);
+        switchState = SWITCH_IDLE;
+        ls_syslog(LOG_INFO, "\
+%s: removed the leftover %s of an interrupted synchronous switch",
+                  fname, event0Fname);
+        return;
+    }
+
+    if (!ready) {
+        /* no archive was touched yet; with a delta the events go back
+         * to the old active file, without one there is nothing to save */
+        if (haveDelta) {
+            if (switchLogRollback() < 0)
+                switchState = SWITCH_STALLED;
+        } else {
+            switchLogDropRound("baseline incomplete, no delta events");
+        }
+        return;
+    }
+
+    if (haveDelta) {
+        if (switchLogRollForward() < 0)
+            switchState = SWITCH_STALLED;
+        return;
+    }
+
+    /* READY but the delta is gone: someone removed it by hand */
+    if (haveZero) {
+        /* archives untouched, the old active file is complete: dropping
+         * the round loses nothing the missing delta has not lost already */
+        switchLogDropRound("delta file lost before the rotation");
+        return;
+    }
+
+    /*
+     * Archives already rotated.  Publish the baseline to avoid archiving
+     * the same history segment twice - but only if it belongs to the
+     * current active file; see the function comment.
+     */
+    chuser(managerId);
+    if (stat(tmpElogFname, &tmpSt) < 0 || stat(elogFname, &activeSt) < 0) {
+        chuser(batchId);
+        goto unreadable_nochuser;
+    }
+    chuser(batchId);
+
+    if (tmpSt.st_mtime >= activeSt.st_mtime) {
+        if (switchLogRollForward() < 0)
+            switchState = SWITCH_STALLED;
+        ls_syslog(LOG_WARNING, "\
+%s: the delta file of the interrupted switch was missing; events logged \
+during that switch window are lost", fname);
+    } else {
+        ls_syslog(LOG_ERR, "\
+%s: %s is older than %s and cannot belong to it; a stale leftover is \
+never published, dropping it", fname, tmpElogFname, elogFname);
+        switchLogDropRound("stale baseline from an older generation");
+    }
+    return;
+
+unreadable:
+    chuser(batchId);
+unreadable_nochuser:
+    ls_syslog(LOG_ERR, "\
+%s: cannot stat the switch files in %s/logdir (%m); recovery is skipped \
+for now and retried later", fname,
+              daemonParams[LSB_SHAREDIR].paramValue);
+    switchState = SWITCH_STALLED;
+}
+
+/* Drop everything this round has created.  Used when the preparation or
+ * the fork itself fails, before any event has been written to the delta
+ * file, so nothing can be lost here.
+ */
+static void
+switchLogAbortPrepare(void)
+{
+    chuser(managerId);
+    unlink(deltaElogFname);
+    unlink(tmpElogFname);
+    chuser(batchId);
+}
+
+/*
+ * Create this round's files and freeze the switch start time.
+ *
+ * lsb.events.tmp is created with O_EXCL: its existence is what tells a
+ * concurrent or later switch that the log directory is already owned by
+ * a switch.  lsb.events.0 is created by the child in createEvent0File().
+ * @return: 0 on success, -1 on failure with every created file removed.
+ */
+static int
+switchLogPrepare(void)
+{
+    static char fname[] = "switchLogPrepare";
+    FILE       *fp;
+    int         fd;
+
+    chuser(managerId);
+
+    if ((fd = open(tmpElogFname, O_WRONLY | O_CREAT | O_EXCL, 0644)) < 0) {
+        chuser(batchId);
+        if (errno == EEXIST)
+            ls_syslog(LOG_ERR, "\
+%s: %s already exists, so a previous switch_log did not finish; this \
+switch is skipped and no event log rotation happens until the file is \
+removed by hand", fname, tmpElogFname);
+        else
+            ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "open",
+                      tmpElogFname);
+        return -1;
+    }
+    close(fd);
+
+    /*
+     * The mode given to open() is masked by the process umask, and
+     * mbatchd does not keep a stable umask: initSubmitReq() sets it to
+     * 0077 on the first bmod and never restores it.  Set the mode
+     * explicitly so the file published as lsb.events is 0644.
+     */
+    chmod(tmpElogFname, 0644);
+
+    /*
+     * The delta file is a regular event file: openEventFile() writes the
+     * usual header with the first event and existing readers skip it.
+     * Creating it with "w" also discards any stale leftover.
+     */
+    if ((fp = fopen(deltaElogFname, "w")) == NULL) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen",
+                  deltaElogFname);
+        chuser(batchId);
+        switchLogAbortPrepare();
+        return -1;
+    }
+    FCLOSEUP(&fp);
+    chmod(deltaElogFname, 0644);
+
+    switchStartTime = time(0);
+
+    chuser(batchId);
+    return 0;
+}
+
+/*
+ * Body of the switch child.  It owns the expensive part of the switch:
+ * the full scan of the frozen active file, the construction of .0/.tmp,
+ * the archive rotation and the index rebuild.  It never returns.
+ *
+ * Both .0 and .tmp are built exactly like the synchronous path builds
+ * them; lsb.events cannot change while this runs, because the parent
+ * writes every new event to lsb.events.delta.
+ * @return: never returns; _exit()s with a SWITCH_CHILD_EXIT_* code.
+ */
+static void
+switchLogChildMain(void)
+{
+    static char     fname[] = "switchLogChild";
+    char            indexFile[MAXFILENAMELEN];
+    struct eventRec rec;
+    FILE           *tmpfp;
+    FILE           *efp;
+    long            pos;
+    int             totalEventFile;
+
+    closeExceptFD(-1);
+    chuser(managerId);
+
+    /* 1. archive segment of the frozen active file */
+    if (createEvent0File() < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "createEvent0File");
+        _exit(SWITCH_CHILD_EXIT_FAIL);
+    }
+
+    /* 2. compressed baseline of the frozen active file */
+    if ((tmpfp = fopen(tmpElogFname, "w")) == NULL) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", tmpElogFname);
+        _exit(SWITCH_CHILD_EXIT_FAIL);
+    }
+
+    if ((efp = fopen(elogFname, "r")) == NULL) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", elogFname);
+        _exit(SWITCH_CHILD_EXIT_FAIL);
+    }
+
+    fprintf(tmpfp, ELOG_BASELINE_HEADER);
+
+    initHostCtrlTable();
+    initQueueCtrlTable();
+
+    if (scanBaselineEvents(efp, tmpfp, tmpElogFname, TRUE) < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "scanBaselineEvents");
+        _exit(SWITCH_CHILD_EXIT_FAIL);
+    }
+    FCLOSEUP(&efp);
+
+    /*
+     * 3. The history seek position points right behind the baseline, so
+     *    the switch state records below and every delta event appended
+     *    later belong to the next archive segment.
+     */
+    pos = ftell(tmpfp);
+
+    /*
+     * 4. State of hosts, queues and of the switch itself.  The switch
+     *    record uses the time frozen before the fork and the nextJobId
+     *    of the fork time snapshot, so that it cannot carry a time later
+     *    than the delta events appended after it.
+     */
+    writeHostCtrlEvent(tmpfp);
+    writeQueueCtrlEvent(tmpfp);
+
+    memset(&rec, 0, sizeof(rec));
+    rec.eventLog.logSwitchLog.lastJobId = nextJobId;
+
+    if (putEventRecTo(tmpfp, &rec, EVENT_LOG_SWITCH, switchStartTime) < 0)
+        _exit(SWITCH_CHILD_EXIT_FAIL);
+
+    /*
+     * 5. Make the baseline durable, then publish the history seek
+     *    position.  Two barriers, not one: READY (digits in the header)
+     *    is what recovery trusts, so every byte below the header must
+     *    be on disk before the digits are.  With a single fsync a power
+     *    loss in its middle could persist the header page but lose the
+     *    tail, and a truncated baseline would be published as complete.
+     *    The flip itself is a small overwrite inside the already
+     *    allocated first block, so it cannot be half visible in a way
+     *    that matters: either the digits are there or they are not.
+     */
+    if (fflush(tmpfp) != 0 || fsync(fileno(tmpfp)) < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpElogFname);
+        _exit(SWITCH_CHILD_EXIT_FAIL);
+    }
+
+    rewind(tmpfp);
+    fprintf(tmpfp, "#%ld", pos);
+
+    if (fflush(tmpfp) != 0 || fsync(fileno(tmpfp)) < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpElogFname);
+        _exit(SWITCH_CHILD_EXIT_FAIL);
+    }
+
+    if (FCLOSEUP(&tmpfp) < 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fclose", tmpElogFname);
+        _exit(SWITCH_CHILD_EXIT_FAIL);
+    }
+
+    /* 6. rotate .N -> .N+1 ... .0 -> .1 */
+    if ((totalEventFile = renameElogFiles()) <= 0) {
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "renameElogFiles");
+        _exit(SWITCH_CHILD_EXIT_FAIL);
+    }
+
+    /*
+     * 7. Rebuild the archive job id index.  A failure here does not
+     *    invalidate the switch: updateJobIdIndexFile() rebuilds the
+     *    whole index as soon as the archive count no longer matches the
+     *    index, which the next switch does.
+     */
+    sprintf(indexFile, "%s/logdir/%s",
+            daemonParams[LSB_SHAREDIR].paramValue, LSF_JOBIDINDEX_FILENAME);
+
+    chuser(managerId);
+    if (updateJobIdIndexFile(indexFile, elogFname, totalEventFile) < 0)
+        ls_syslog(LOG_ERR, "\
+%s: updateJobIdIndexFile(%s) failed: %s; the next switch rebuilds it",
+                  fname, indexFile, lsb_sysmsg());
+
+    ls_syslog(LOG_INFO, "\
+%s: switch child done, %d archive files", fname, totalEventFile);
+
+    _exit(SWITCH_CHILD_EXIT_OK);
+}
+
+/*
+ * Start one round of the fork based switch_log.
+ * @return: 0 when a child was started, -1 when the previous round is
+ *          not finished yet or this round could not be prepared.
+ */
+static int
+forkSwitchLog(void)
+{
+    static char fname[] = "forkSwitchLog";
+    sigset_t    newmask, oldmask;
+    pid_t       pid;
+
+    if (switchState != SWITCH_IDLE) {
+        ls_syslog(LOG_DEBUG, "\
+%s: previous switch_log is still in state %d", fname, switchState);
+        return -1;
+    }
+
+    ls_syslog(LOG_INFO, "\
+%s: switching event log file %s in a child process", fname, elogFname);
+
+    if (switchLogPrepare() < 0)
+        return -1;
+
+    sigemptyset(&newmask);
+    sigaddset(&newmask, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &newmask, &oldmask);
+
+    switchChildPid = 0;
+    switchChildDone = 0;
+
+    /*
+     * From here on every new event goes to lsb.events.delta, which
+     * freezes lsb.events for the child.  The route is changed between
+     * two event handlers, so no event is ever written to both files.
+     */
+    elogWriteTarget = deltaElogFname;
+
+    pid = fork();
+
+    if (pid == 0) {
+        pid_t ppid = getppid();
+
+        sigprocmask(SIG_SETMASK, &oldmask, NULL);
+
+        /*
+         * The handler table is inherited across fork and this process
+         * is not mbatchd: terminate_handler() would exit() and flush
+         * the inherited stdio buffers into the event files, and
+         * child_handler() would poke at this file's result slots.  The
+         * default actions - plain death - are the right behaviour here;
+         * whatever is left behind is classified by switchLogRecover().
+         * SIGPIPE stays ignored, this process only writes plain files.
+         */
+        Signal_(SIGTERM, SIG_DFL);
+        Signal_(SIGINT,  SIG_DFL);
+        Signal_(SIGCHLD, SIG_DFL);
+
+#ifdef __linux__
+        /*
+         * Die with the parent, so that an mbatchd restart (a reconfig
+         * is one) can never leave an orphan rotating archives in
+         * parallel with the recovery of the next mbatchd.  SIGKILL, not
+         * SIGTERM: nothing may run, nothing may flush.  The fork must
+         * stay on the main thread - the death signal fires when the
+         * forking thread exits.
+         */
+        prctl(PR_SET_PDEATHSIG, SIGKILL);
+        if (getppid() != ppid)
+            _exit(SWITCH_CHILD_EXIT_FAIL);  /* parent died before prctl */
+#endif
+
+        switchLogChildMain();
+        _exit(SWITCH_CHILD_EXIT_FAIL);
+    }
+
+    if (pid < 0) {
+        elogWriteTarget = elogFname;
+        sigprocmask(SIG_SETMASK, &oldmask, NULL);
+        switchLogAbortPrepare();
+        ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "fork");
+        return -1;
+    }
+
+    /*
+     * Register the pid before SIGCHLD is unblocked, so that a child
+     * which exits immediately is still matched by the handler.
+     */
+    switchChildPid = pid;
+    switchState = SWITCH_CHILD_RUNNING;
+
+    sigprocmask(SIG_SETMASK, &oldmask, NULL);
+
+    ls_syslog(LOG_INFO, "%s: switch child pid %d started", fname, (int)pid);
+
+    return 0;
+}
+
+/*
+ * Report that a commit or recovery attempt failed and that the round is
+ * parked in SWITCH_STALLED.  Unlike phase one this is not a dead end:
+ * the next switchELog() trigger calls switchLogRecover() again, and all
+ * files of the round are still in place for that retry.  Events keep
+ * going to lsb.events.delta in the meantime.
+ *
+ * @param[in] fname: Caller name for the log lines.
+ */
+static void
+switchLogReportStalled(const char *fname)
+{
+    ls_syslog(LOG_ERR, "\
+%s: the switch did not complete; %s is still the valid active event file \
+and no file was deleted.  New events go to %s until the round is \
+recovered, which is retried automatically on the next switch trigger",
+              fname, elogFname, deltaElogFname);
+
+    lsb_merr("\
+Fail to switch lsb.events; see mbatchd error log for details");
+}
+
+/*
+ * Called from the SIGCHLD handler for every reaped child.  It only saves
+ * the wait status of the switch child and publishes switchChildDone
+ * last; the status is decoded by the main loop.
+ * @param[in] pid: Pid waitpid() just reaped.
+ * @param[in] status: Raw wait status belonging to that pid.
+ */
+void
+switchLogChildReaped(pid_t pid, int status)
+{
+    if (switchChildPid == 0 || pid != switchChildPid)
+        return;
+
+    switchChildStatus = status;
+    switchChildDone = 1;
+}
+
+/* TRUE while a switch child is running; the main loop uses it to cap the
+ * epoll wait so that the completion flag is consumed quickly.
+ */
+int
+switchLogChildRunning(void)
+{
+    return (switchState == SWITCH_CHILD_RUNNING);
+}
+
+/*
+ * Kill and reap the switch child on the way out of mbatchd.  Must be
+ * called before die() releases the event log lock: a volclava reconfig
+ * restarts mbatchd, the new instance takes the lock immediately, and an
+ * orphaned child still renaming archives would race its recovery.
+ * PR_SET_PDEATHSIG is only the backstop for an uncontrolled parent
+ * death (SIGKILL); this is the controlled path.
+ *
+ * Safe in any state: switchChildPid is 0 unless a child was forked and
+ * not yet consumed, and it is 0 inside the child itself, so a child
+ * that ends up in mbdDie() cannot signal anyone else.
+ */
+void
+switchLogKillChild(void)
+{
+    pid_t pid = switchChildPid;
+
+    if (pid <= 0)
+        return;
+
+    ls_syslog(LOG_INFO, "\
+%s: killing switch child pid %d before exiting; the next mbatchd \
+recovers the interrupted switch", __func__, (int)pid);
+
+    kill(pid, SIGKILL);
+    while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
+        ;
+}
+
+/*
+ * Main loop side of the completion protocol: consume the status the
+ * SIGCHLD handler saved and hand the round to switchLogRecover().
+ *
+ * The exit code is deliberately not trusted on its own.  A zero exit
+ * only says what the child believed; what counts is what it left on
+ * disk, and the same classification that handles a crashed child -
+ * READY header, archive segment gone, delta present - also tells
+ * whether a "successful" child really produced a publishable baseline.
+ * A child that exited 0 with a raw .tmp (a logic error, a lost write)
+ * would otherwise be published with a placeholder header, and the next
+ * switch would archive the whole active file as history.  So a clean
+ * exit and a failed one take the same path; the exit code only decides
+ * the log level.
+ */
+void
+switchLogCheckChild(void)
+{
+    static char fname[] = "switchLogCheckChild";
+    sigset_t    newmask, oldmask;
+    int         status;
+    int         expect;
+
+    if (!switchChildDone)
+        return;
+
+    sigemptyset(&newmask);
+    sigaddset(&newmask, SIGCHLD);
+    sigprocmask(SIG_BLOCK, &newmask, &oldmask);
+
+    status = switchChildStatus;
+    switchChildDone = 0;
+    switchChildPid = 0;
+
+    sigprocmask(SIG_SETMASK, &oldmask, NULL);
+
+    if (WIFEXITED(status) && WEXITSTATUS(status) == SWITCH_CHILD_EXIT_OK) {
+        expect = RECOVER_EXPECT_COMPLETE;
+    } else {
+        expect = RECOVER_EXPECT_INTERRUPTED;
+        if (WIFSIGNALED(status))
+            ls_syslog(LOG_ERR, "\
+%s: the switch child was killed by signal %d", fname, WTERMSIG(status));
+        else
+            ls_syslog(LOG_ERR, "\
+%s: the switch child failed with exit code %d", fname,
+                      WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+    }
+
+    /*
+     * The child is reaped, so the files are ours now.  Depending on how
+     * far the child came this publishes the round, rolls it back onto
+     * the old active file or drops it; if recovery itself fails the
+     * round is parked in SWITCH_STALLED and retried from switchELog().
+     */
+    switchState = SWITCH_STALLED;
+    switchLogRecover(expect);
+
+    if (switchState == SWITCH_STALLED)
+        switchLogReportStalled(fname);
+}
+
 static int
 createAcct0File(void)
 {
@@ -2821,7 +4311,13 @@ createAcct0File(void)
             if (nread + cc > size)
                 cc = size - nread;
 
-            if (fwrite(buf, 1, cc, acct0Ptr) == 0) {
+            /*
+             * A short write is a failure: fwrite() only returning 0 let
+             * a full disk or an NFS error truncate the archive copy
+             * silently.  cc was already clipped to the captured size
+             * above, so anything less than cc means lost bytes.
+             */
+            if (fwrite(buf, 1, cc, acct0Ptr) != (size_t)cc) {
                 chuser(batchId);
                 ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "fwrite");
                 FCLOSEUP(&acctPtr);
@@ -2853,7 +4349,8 @@ createEvent0File (void)
     char buf[MSGSIZE];
     char ch;
     struct stat st;
-    int nread, cc, size;
+    off_t nread, size;
+    int cc;
     long int pos;
     FILE *eventPtr, *event0Ptr;
 
@@ -2896,7 +4393,15 @@ createEvent0File (void)
             if (nread + cc > size)
                 cc = size - nread;
 
-            if (fwrite(buf, 1, cc, event0Ptr) == 0) {
+            /*
+             * A short write is a failure: fwrite() only returning 0 let
+             * a full disk or an NFS error truncate the archive segment
+             * silently - and the switch would then publish and rotate a
+             * damaged archive as if nothing happened.  cc was already
+             * clipped to the captured size above, so anything less than
+             * cc means lost bytes.
+             */
+            if (fwrite(buf, 1, cc, event0Ptr) != (size_t)cc) {
                 chuser(batchId);
                 ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "fwrite");
                 FCLOSEUP(&eventPtr);
@@ -2915,7 +4420,26 @@ createEvent0File (void)
         }
     }
     FCLOSEUP(&eventPtr);
-    FCLOSEUP(&event0Ptr);
+
+    /*
+     * The archive segment is renamed into the .1...N set right after
+     * this function; without an fsync a power loss could cut its tail
+     * off while the rename survives, leaving a silently truncated
+     * archive that no later check can tell from a complete one.  The
+     * buffered tail also only reaches the disk on a checked close.
+     */
+    if (fflush(event0Ptr) != 0 || fsync(fileno(event0Ptr)) < 0) {
+        chuser(batchId);
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", event0File);
+        FCLOSEUP(&event0Ptr);
+        return (-1);
+    }
+
+    if (FCLOSEUP(&event0Ptr) < 0) {
+        chuser(batchId);
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fclose", event0File);
+        return (-1);
+    }
 
     return (0);
 }
@@ -4685,8 +6209,14 @@ saveHostCtrlEvent(struct hostCtrlLog *hostCtrlLog,
 
 }
 
+/*
+ * Write the host status records kept for this switch.  With fp == NULL
+ * the records go through the normal event write route; otherwise they
+ * are serialized directly into fp (used by the switch child for
+ * lsb.events.tmp).
+ */
 static void
-writeHostCtrlEvent(void)
+writeHostCtrlEvent(FILE *fp)
 {
     struct hostCtrlEvent  *ctrlPtr;
     hEnt                  *hEntry;
@@ -4699,10 +6229,26 @@ writeHostCtrlEvent(void)
 
         ctrlPtr->hostCtrlLog->opCode = HOST_CLOSE;
 
-        log_hostStatusAtSwitch(ctrlPtr);
+        if (fp == NULL)
+            log_hostStatusAtSwitch(ctrlPtr);
+        else
+            log_hostStatusAtSwitchTo(fp, ctrlPtr);
 
     } END_FOR_EACH_HTAB_ENTRY;
 
+}
+
+/* Serialize one saved HOST_CTRL record into the given stream.
+ */
+static int
+log_hostStatusAtSwitchTo(FILE *fp, const struct hostCtrlEvent *ctrlPtr)
+{
+    struct eventRec rec;
+
+    memset(&rec, 0, sizeof(rec));
+    rec.eventLog.hostCtrlLog = *ctrlPtr->hostCtrlLog;
+
+    return putEventRecTo(fp, &rec, EVENT_HOST_CTRL, ctrlPtr->time);
 }
 
 static void
@@ -4848,8 +6394,12 @@ queueTableUpdate(hTab                 *tbPtr,
 
 /* writeQueueCtrlEvent()
  */
+/*
+ * Write the queue status records kept for this switch.  See
+ * writeHostCtrlEvent() for the meaning of fp.
+ */
 static void
-writeQueueCtrlEvent(void)
+writeQueueCtrlEvent(FILE *fp)
 {
     struct queueCtrlEvent    *ctrlPtr;
     hEnt                     *hEntry;
@@ -4862,7 +6412,10 @@ writeQueueCtrlEvent(void)
 
 
         ctrlPtr->queueCtrlLog->opCode = QUEUE_CLOSED;
-        log_queueStatusAtSwitch(ctrlPtr);
+        if (fp == NULL)
+            log_queueStatusAtSwitch(ctrlPtr);
+        else
+            log_queueStatusAtSwitchTo(fp, ctrlPtr);
 
     } END_FOR_EACH_HTAB_ENTRY;
 
@@ -4871,11 +6424,27 @@ writeQueueCtrlEvent(void)
         ctrlPtr = (struct queueCtrlEvent *)hEntry->hData;
 
         ctrlPtr->queueCtrlLog->opCode = QUEUE_INACTIVATE;
-        log_queueStatusAtSwitch(ctrlPtr);
+        if (fp == NULL)
+            log_queueStatusAtSwitch(ctrlPtr);
+        else
+            log_queueStatusAtSwitchTo(fp, ctrlPtr);
 
     } END_FOR_EACH_HTAB_ENTRY;
 
 
+}
+
+/* Serialize one saved QUEUE_CTRL record into the given stream.
+ */
+static int
+log_queueStatusAtSwitchTo(FILE *fp, const struct queueCtrlEvent *ctrlPtr)
+{
+    struct eventRec rec;
+
+    memset(&rec, 0, sizeof(rec));
+    rec.eventLog.queueCtrlLog = *ctrlPtr->queueCtrlLog;
+
+    return putEventRecTo(fp, &rec, EVENT_QUEUE_CTRL, ctrlPtr->time);
 }
 
 static void

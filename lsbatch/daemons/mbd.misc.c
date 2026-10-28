@@ -1357,6 +1357,15 @@ mbdDie (int sig)
     sigaddset(&newmask, SIGINT);
     sigprocmask(SIG_BLOCK, &newmask, NULL);
 
+    /*
+     * Stop a running switch child before any shutdown event is logged
+     * and before die() releases the event log lock, so that the child
+     * cannot rotate archives in parallel with the next mbatchd.  The
+     * events logged below still go to lsb.events.delta if a switch was
+     * in flight; the next mbatchd merges them during recovery.
+     */
+    switchLogKillChild();
+
     for (list = 0; list < NJLIST; list++) {
         if (jDataList[list] != NULL) {
             for (jpbw = jDataList[list]->back; jpbw != jDataList[list];

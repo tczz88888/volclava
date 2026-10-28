@@ -171,6 +171,7 @@
 #define LSB_QMBD_THREAD_NUM         61
 #define LSB_QMBD_JOB_SYNC_MODE      62
 #define LSB_QMBD_SYNC_SHM_SIZE      63
+#define LSB_FORK_ROTATE             64
 #define NOT_LOG  INFINIT_INT
 
 
