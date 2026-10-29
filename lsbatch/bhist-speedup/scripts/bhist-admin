@@ -102,7 +102,7 @@ running_pid() {
     output=$("$BIN" status 2>&1)
     status=$?
     if [ "$status" -ge 2 ]; then
-        echo "$output" | grep -v '=' | strip_log_prefix >&2
+        echo "$output" | strip_log_prefix >&2
         exit "$status"
     fi
     echo "$output" | sed -n 's/^pid=//p' | head -n 1
