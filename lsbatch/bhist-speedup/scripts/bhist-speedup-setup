@@ -63,24 +63,11 @@ unit_envdir() {
         2> /dev/null
 }
 
-# Drop the time, pid and level fields ls_syslog() writes before a message.
-strip_log_prefix() {
-    sed -E 's/^[A-Z][a-z]{2} +[0-9]+ [0-9:]+ [0-9]+ [0-9]+ [0-9]+ //'
-}
-
-# Stop with the program's own reason when it cannot start on this host.
-# Sets RUNNING_PID when an instance already runs.
+# Set RUNNING_PID when an instance already runs. The units do not depend on
+# lsb.hist, so its problems are left for the programs to report at start.
 check_service() {
-    local program=bhist-speedup-$1 output status
-
-    output=$("$LSF_SERVERDIR/$program" status 2>&1)
-    status=$?
-    if [ "$status" -eq 78 ]; then
-        echo "$output" | strip_log_prefix >&2
-        die "$program cannot run on this host; fix the problem above and" \
-            "rerun $PROG"
-    fi
-    RUNNING_PID=$(echo "$output" | sed -n 's/^pid=//p' | head -n 1)
+    RUNNING_PID=$("$LSF_SERVERDIR/bhist-speedup-$1" status 2> /dev/null |
+        sed -n 's/^pid=//p' | head -n 1)
 }
 
 # Write one unit, setting CHANGED when its content differs.
