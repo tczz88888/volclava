@@ -3942,6 +3942,7 @@ recovering", fname,
      */
     chuser(managerId);
     if (stat(tmpElogFname, &tmpSt) < 0 || stat(elogFname, &activeSt) < 0) {
+        saveErrno = errno;
         chuser(batchId);
         goto unreadable_nochuser;
     }
@@ -3964,6 +3965,7 @@ never published, dropping it", fname, tmpElogFname, elogFname);
 unreadable:
     chuser(batchId);
 unreadable_nochuser:
+    errno = saveErrno;      /* %m must report the failed stat() */
     SWITCH_LOG(LOG_ERR, "\
 %s: cannot stat the switch files in %s/logdir (%m); recovery is skipped \
 for now and retried later", fname,
