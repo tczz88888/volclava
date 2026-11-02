@@ -3869,12 +3869,21 @@ switchLogPrepare(void)
 
     if ((fd = open(tmpElogFname, O_WRONLY | O_CREAT | O_EXCL, 0644)) < 0) {
         chuser(batchId);
-        if (errno == EEXIST)
+        if (errno == EEXIST) {
+            /*
+             * A leftover nobody is recovering (state is IDLE, so neither
+             * the reaper nor the STALLED retry will look at it).  Park
+             * the round as STALLED: the next trigger runs
+             * switchLogRecover(), which classifies the file like any
+             * other leftover, instead of skipping every switch until
+             * mbatchd is restarted.
+             */
+            switchState = SWITCH_STALLED;
             ls_syslog(LOG_ERR, "\
 %s: %s already exists, so a previous switch_log did not finish; this \
-switch is skipped and no event log rotation happens until the file is \
-removed by hand", fname, tmpElogFname);
-        else
+switch is skipped and the leftover is recovered on the next trigger",
+                      fname, tmpElogFname);
+        } else
             ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "open",
                       tmpElogFname);
         return -1;
