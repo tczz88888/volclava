@@ -3458,6 +3458,19 @@ switchLogRollback(void)
 
     chuser(managerId);
 
+    /*
+     * Free the space of the half built archive segment first.  When the
+     * disk is full it is usually what filled it, and the merge back below
+     * needs room; without this the rollback would fail on every retry.
+     * Safe because the baseline is raw: no archive was renamed, so .0 is
+     * nothing but a rebuildable copy, and the round still classifies as a
+     * rollback without it.  .tmp must stay - without it a leftover delta
+     * would read as the remains of a finished publish.
+     */
+    if (unlink(event0Fname) < 0 && errno != ENOENT)
+        SWITCH_LOG(LOG_WARNING, I18N_FUNC_S_FAIL_M, fname, "unlink",
+                   event0Fname);
+
     if (stat(deltaElogFname, &st) == 0 && st.st_size > 0) {
 
         if (elogHeaderNumbers(deltaElogFname, NULL, &recorded) >= 2) {
