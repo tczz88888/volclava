@@ -217,6 +217,7 @@ static volatile sig_atomic_t   switchChildStatus = 0;
 
 static void             switchLogRecover(int);
 static void             switchLogParkRound(void);
+static void             switchLogReplayDelta(void);
 static void             switchChildCheckParent(void);
 static int              forkSwitchLog(void);
 static int              switchLogPrepare(void);
@@ -425,6 +426,9 @@ init_log(void)
 
         if (log_fp)
             FCLOSEUP(&log_fp);
+
+        /* events of a round whose recovery failed above, see there */
+        switchLogReplayDelta();
 
         for (list = SJL; list <= PJL; list++) {
 
@@ -3659,6 +3663,71 @@ switchLogParkRound(void)
 {
     elogWriteTarget = deltaElogFname;
     switchState = SWITCH_STALLED;
+}
+
+/*
+ * Replay lsb.events.delta after lsb.events when the startup recovery of
+ * an interrupted round failed (the round is parked, its files are still
+ * there).  Without this the events logged while that round ran never
+ * reach memory: their jobs would be missing until the next restart,
+ * their job ids would be handed out again, and the next switch would
+ * drop them from the baseline because they are not in core.
+ *
+ * Replaying lsb.events and then the delta gives the right state for both
+ * ways the round can still end: a rollback appends exactly this delta to
+ * lsb.events, and a roll forward publishes a baseline that is only the
+ * compressed form of lsb.events followed by this delta.  Events logged
+ * from now on go to the delta as well (switchLogParkRound()), so the
+ * order stays the same whichever way the round is finished.
+ */
+static void
+switchLogReplayDelta(void)
+{
+    static char fname[] = "switchLogReplayDelta";
+    struct stat st;
+    FILE       *fp;
+    int         lineNum = 0;
+
+    if (switchState != SWITCH_STALLED || stat(deltaElogFname, &st) < 0)
+        return;
+
+    chuser(managerId);
+    fp = fopen(deltaElogFname, "r");
+    chuser(batchId);
+
+    if (fp == NULL) {
+        SWITCH_LOG(LOG_ERR, "\
+%s: cannot open %s (%m); the events of the interrupted switch are not \
+loaded until the switch is recovered and mbatchd restarted", fname,
+                   deltaElogFname);
+        return;
+    }
+
+    SWITCH_LOG(LOG_WARNING, "\
+%s: the interrupted switch could not be recovered at startup; replaying \
+%s after %s so that its events are in memory", fname, deltaElogFname,
+               elogFname);
+
+    if (lsberrno == LSBE_EOF)
+        lsberrno = LSBE_NO_ERROR;
+
+    while (lsberrno != LSBE_EOF) {
+        if ((logPtr = lsb_geteventrec(fp, &lineNum)) == NULL) {
+            if (lsberrno != LSBE_EOF) {
+                SWITCH_LOG(LOG_ERR, "\
+%s: Reading event file <%s> at line <%d>: %s", fname, deltaElogFname,
+                           lineNum, lsb_sysmsg());
+                if (lsberrno == LSBE_NO_MEM)
+                    mbdDie(MASTER_MEM);
+            }
+            continue;
+        }
+
+        eventTime = logPtr->eventTime;
+        replay_event(deltaElogFname, lineNum);
+    }
+
+    FCLOSEUP(&fp);
 }
 
 /*
