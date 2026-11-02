@@ -204,6 +204,7 @@ static char            *elogWriteTarget = elogFname;
 static int              switchState = SWITCH_IDLE;  /* SWITCH_*, only changed by the main loop */
 static time_t           switchStartTime;    /* frozen before the fork */
 static int              switchChildKillSent;  /* watchdog already killed this child */
+static pid_t            switchParentPid;      /* switch child only: pid of the mbatchd that forked it */
 
 /*
  * Filled in by the SIGCHLD handler.  switchChildPid is only written by
@@ -215,6 +216,7 @@ static volatile sig_atomic_t   switchChildDone = 0;
 static volatile sig_atomic_t   switchChildStatus = 0;
 
 static void             switchLogRecover(int);
+static void             switchChildCheckParent(void);
 static int              forkSwitchLog(void);
 static int              switchLogPrepare(void);
 static void             switchLogAbortPrepare(void);
@@ -3969,12 +3971,14 @@ switchLogChildMain(void)
     chuser(managerId);
 
     /* 1. archive segment of the frozen active file */
+    switchChildCheckParent();
     if (createEvent0File() < 0) {
         SWITCH_LOG(LOG_ERR, I18N_FUNC_FAIL, fname, "createEvent0File");
         _exit(SWITCH_CHILD_EXIT_FAIL);
     }
 
     /* 2. compressed baseline of the frozen active file */
+    switchChildCheckParent();
     if ((tmpfp = fopen(tmpElogFname, "w")) == NULL) {
         SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", tmpElogFname);
         _exit(SWITCH_CHILD_EXIT_FAIL);
@@ -4034,6 +4038,8 @@ switchLogChildMain(void)
         _exit(SWITCH_CHILD_EXIT_FAIL);
     }
 
+    /* flipping READY hands the round to roll forward; not as an orphan */
+    switchChildCheckParent();
     rewind(tmpfp);
     fprintf(tmpfp, "#%ld", pos);
 
@@ -4047,7 +4053,7 @@ switchLogChildMain(void)
         _exit(SWITCH_CHILD_EXIT_FAIL);
     }
 
-    /* 6. rotate .N -> .N+1 ... .0 -> .1 */
+    /* 6. rotate .N -> .N+1 ... .0 -> .1 (checks the parent per rename) */
     if ((totalEventFile = renameElogFiles()) <= 0) {
         SWITCH_LOG(LOG_ERR, I18N_FUNC_FAIL, fname, "renameElogFiles");
         _exit(SWITCH_CHILD_EXIT_FAIL);
@@ -4063,6 +4069,7 @@ switchLogChildMain(void)
             daemonParams[LSB_SHAREDIR].paramValue, LSF_JOBIDINDEX_FILENAME);
 
     chuser(managerId);
+    switchChildCheckParent();
     if (updateJobIdIndexFile(indexFile, elogFname, totalEventFile) < 0)
         SWITCH_LOG(LOG_ERR, "\
 %s: updateJobIdIndexFile(%s) failed: %s; the next switch rebuilds it",
@@ -4072,6 +4079,44 @@ switchLogChildMain(void)
 %s: switch child done, %d archive files", fname, totalEventFile);
 
     _exit(SWITCH_CHILD_EXIT_OK);
+}
+
+/*
+ * Switch child only: stop as soon as the mbatchd that forked this child
+ * is gone, so that an orphan can never rotate archives in parallel with
+ * the recovery of the next mbatchd (a volclava reconfig restarts
+ * mbatchd, and the new one takes the event log lock immediately).
+ *
+ * PR_SET_PDEATHSIG alone is not enough: the kernel clears the
+ * parent-death signal whenever the process changes its credentials,
+ * and the child switches its effective uid all the time (chuser() for
+ * file ownership, SWITCH_LOG() for the log file).  So this is called
+ * before every step that modifies files - each phase of the child and
+ * each archive rename - and does both: a getppid() check that catches
+ * a parent that is already gone, and a fresh PR_SET_PDEATHSIG that kills
+ * the child immediately if the parent dies before the next credential
+ * change.  SIGKILL, not SIGTERM: nothing may run, nothing may flush.
+ * The fork must stay on the main thread - the death signal fires when
+ * the forking thread exits.
+ *
+ * A no-op in mbatchd itself (switchParentPid is only set in the child),
+ * so shared helpers such as renameElogFiles() can call it unconditionally.
+ */
+static void
+switchChildCheckParent(void)
+{
+    if (switchParentPid == 0)
+        return;
+
+    if (getppid() != switchParentPid)
+        _exit(SWITCH_CHILD_EXIT_FAIL);
+
+#ifdef __linux__
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
+    /* the parent may have died between the check and prctl() */
+    if (getppid() != switchParentPid)
+        _exit(SWITCH_CHILD_EXIT_FAIL);
+#endif
 }
 
 /*
@@ -4085,6 +4130,7 @@ forkSwitchLog(void)
     static char fname[] = "forkSwitchLog";
     sigset_t    newmask, oldmask;
     pid_t       pid;
+    pid_t       parentPid;
 
     if (switchState != SWITCH_IDLE) {
         SWITCH_LOG(LOG_DEBUG, "\
@@ -4112,10 +4158,11 @@ forkSwitchLog(void)
      */
     elogWriteTarget = deltaElogFname;
 
+    parentPid = getpid();
     pid = fork();
 
     if (pid == 0) {
-        pid_t ppid = getppid();
+        switchParentPid = parentPid;
 
         sigprocmask(SIG_SETMASK, &oldmask, NULL);
 
@@ -4132,20 +4179,7 @@ forkSwitchLog(void)
         Signal_(SIGINT,  SIG_DFL);
         Signal_(SIGCHLD, SIG_DFL);
 
-#ifdef __linux__
-        /*
-         * Die with the parent, so that an mbatchd restart (a reconfig
-         * is one) can never leave an orphan rotating archives in
-         * parallel with the recovery of the next mbatchd.  SIGKILL, not
-         * SIGTERM: nothing may run, nothing may flush.  The fork must
-         * stay on the main thread - the death signal fires when the
-         * forking thread exits.
-         */
-        prctl(PR_SET_PDEATHSIG, SIGKILL);
-        if (getppid() != ppid)
-            _exit(SWITCH_CHILD_EXIT_FAIL);  /* parent died before prctl */
-#endif
-
+        switchChildCheckParent();
         switchLogChildMain();
         _exit(SWITCH_CHILD_EXIT_FAIL);
     }
@@ -4514,6 +4548,9 @@ renameElogFiles(void)
 
     max = i;
     while (i--) {
+
+        /* switch child: never rename once mbatchd is gone */
+        switchChildCheckParent();
 
         sprintf(tmpfn, "%s/logdir/lsb.events.%d",
                 daemonParams[LSB_SHAREDIR].paramValue, i);
