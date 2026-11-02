@@ -2605,20 +2605,6 @@ switchELog (void)
         return;
     }
 
-    /*
-     * The synchronous switch truncates lsb.events.tmp and rewrites
-     * lsb.events.0, so it must never run on top of an unfinished fork
-     * based round.  Unreachable today (lsbForkRotate cannot change at
-     * runtime, a reconfig restarts mbatchd), kept as a guard.
-     */
-    if (switchState != SWITCH_IDLE) {
-        ls_syslog(LOG_ERR, "\
-%s: a fork based switch is in state %d; the synchronous switch is \
-skipped to protect its files", __func__, switchState);
-        numRemoveJobs = numRemoveJobs / 2;
-        return;
-    }
-
     if (switch_log() == 0)
         numRemoveJobs = 0;
     else
@@ -2912,6 +2898,23 @@ switch_log(void)
         ls_syslog(LOG_DEBUG, "%s: event index rebuild pid=%d still running", __func__, (int)eventIndexRebuildPid);
         return -2;
     }
+
+    /*
+     * The synchronous switch truncates lsb.events.tmp, rewrites
+     * lsb.events.0 and renames over lsb.events, so it must never run on
+     * top of an unfinished fork based round: the round's delta events
+     * would be orphaned and later discarded as a finished publish.  The
+     * guard lives here and not in switchELog() because init_log() calls
+     * switch_log() directly after a replay error, and that is exactly
+     * the moment a failed startup recovery leaves the round STALLED.
+     */
+    if (switchState != SWITCH_IDLE) {
+        ls_syslog(LOG_ERR, "\
+%s: an unfinished fork based switch is in state %d; the synchronous \
+switch is skipped to protect its files", fname, switchState);
+        return -1;
+    }
+
     sprintf(tmpfn, "%s/logdir/lsb.events",
             daemonParams[LSB_SHAREDIR].paramValue);
 
