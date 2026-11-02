@@ -171,6 +171,22 @@ static char             jlogFname[MAXFILENAMELEN];
  */
 #define SWITCH_CHILD_MAX_RUNTIME        3600
 
+/*
+ * ls_syslog() as the daemon user.  The switch code spends most of its
+ * time as the LSF administrator (chuser(managerId)) so that the files it
+ * creates are owned by that user, but the mbatchd log file is owned by
+ * root and not writable by the administrator: a message logged in that
+ * state silently ends up in the system syslog instead.  chuser() returns
+ * the previous effective uid and preserves errno, so %m still reports
+ * the error of the failed call.
+ */
+#define SWITCH_LOG(...)                                 \
+    do {                                                \
+        uid_t switchLogSvUid_ = chuser(batchId);        \
+        ls_syslog(__VA_ARGS__);                         \
+        chuser(switchLogSvUid_);                        \
+    } while (0)
+
 /* the placeholder header of a freshly built baseline file; it is
  * overwritten with the history seek position once the baseline is done */
 #define ELOG_BASELINE_HEADER    "#                                     \n"
@@ -2733,7 +2749,7 @@ scanBaselineEvents(FILE *efp, FILE *tmpfp, char *tmpfn, int inChild)
 
         if ((logPtr = lsb_geteventrec(efp, &lineNum)) == NULL) {
             if (lsberrno != LSBE_EOF) {
-                ls_syslog(LOG_ERR, "\
+                SWITCH_LOG(LOG_ERR, "\
 %s: reading line %d in file %s: %s", fname, lineNum,
                           elogFname, lsb_sysmsg());
 
@@ -2867,7 +2883,7 @@ scanBaselineEvents(FILE *efp, FILE *tmpfp, char *tmpfn, int inChild)
                     || (logPtr->type == EVENT_JOB_CLEAN)))) {
 
             if (lsb_puteventrec(tmpfp, logPtr) == -1) {
-                ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_MM,
+                SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_MM,
                           fname, "lsb_puteventrec", tmpfn);
                 return -1;
             }
@@ -3124,13 +3140,13 @@ deltaRecordBaselineEnd(off_t baselineEnd)
     len = sprintf(buf, "#80 %lld", (long long)baselineEnd);
 
     if ((fd = open(deltaElogFname, O_WRONLY)) < 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "open",
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "open",
                   deltaElogFname);
         return -1;
     }
 
     if (pwrite(fd, buf, len, 0) != len || fsync(fd) < 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "pwrite",
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "pwrite",
                   deltaElogFname);
         close(fd);
         return -1;
@@ -3179,7 +3195,7 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
         *copied = 0;
 
     if ((dfp = fopen(deltaElogFname, "r")) == NULL) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen",
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen",
                   deltaElogFname);
         return -1;
     }
@@ -3211,7 +3227,7 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
     }
 
     if (ferror(dfp)) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fread",
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fread",
                   deltaElogFname);
         FCLOSEUP(&dfp);
         return -1;
@@ -3225,26 +3241,26 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
 
     rewind(dfp);
     if (fgets(buf, sizeof(buf), dfp) == NULL) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fgets",
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fgets",
                   deltaElogFname);
         FCLOSEUP(&dfp);
         return -1;
     }
 
     if ((dstfp = fopen(dstPath, "r+")) == NULL) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", dstPath);
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", dstPath);
         FCLOSEUP(&dfp);
         return -1;
     }
 
     if (truncateTo >= 0 && ftruncate(fileno(dstfp), truncateTo) < 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "ftruncate",
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "ftruncate",
                   dstPath);
         goto append_failed;
     }
 
     if (fseek(dstfp, 0, SEEK_END) != 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fseek", dstPath);
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fseek", dstPath);
         goto append_failed;
     }
 
@@ -3257,13 +3273,13 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
             want = (size_t)(recordsEnd - pos);
 
         if ((cc = fread(buf, 1, want, dfp)) == 0) {
-            ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fread",
+            SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fread",
                       deltaElogFname);
             goto append_failed;
         }
 
         if (fwrite(buf, 1, cc, dstfp) != cc) {
-            ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fwrite",
+            SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fwrite",
                       dstPath);
             goto append_failed;
         }
@@ -3274,13 +3290,13 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
     FCLOSEUP(&dfp);
 
     if (fflush(dstfp) != 0 || fsync(fileno(dstfp)) < 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", dstPath);
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", dstPath);
         FCLOSEUP(&dstfp);
         return -1;
     }
 
     if (FCLOSEUP(&dstfp) < 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fclose", dstPath);
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fclose", dstPath);
         return -1;
     }
 
@@ -3316,9 +3332,9 @@ switchLogDropRound(const char *why)
     elogWriteTarget = elogFname;
     switchState = SWITCH_IDLE;
 
-    ls_syslog(LOG_INFO, "\
-%s: dropped the unfinished switch (%s); %s is unchanged and remains the \
-valid event log", __func__, why, elogFname);
+    SWITCH_LOG(LOG_INFO, "\
+%s: dropped the unfinished switch (%s); %s remains the valid event log",
+               __func__, why, elogFname);
 }
 
 /*
@@ -3342,12 +3358,12 @@ trimToLastNewline(const char *path, off_t *size)
     int         fd;
 
     if ((fd = open(path, O_RDWR)) < 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "open", path);
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "open", path);
         return -1;
     }
 
     if (fstat(fd, &st) < 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fstat", path);
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fstat", path);
         close(fd);
         return -1;
     }
@@ -3362,7 +3378,7 @@ trimToLastNewline(const char *path, off_t *size)
 
         cc = pread(fd, buf, want, end - (off_t)want);
         if (cc != (ssize_t)want) {
-            ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "pread", path);
+            SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "pread", path);
             close(fd);
             return -1;
         }
@@ -3380,12 +3396,12 @@ trimToLastNewline(const char *path, off_t *size)
     }
 
     if (end != st.st_size) {
-        ls_syslog(LOG_WARNING, "\
+        SWITCH_LOG(LOG_WARNING, "\
 %s: %s ends in half a record; truncating %lld bytes back to the last \
 complete one", fname, path, (long long)(st.st_size - end));
 
         if (ftruncate(fd, end) < 0 || fsync(fd) < 0) {
-            ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "ftruncate",
+            SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "ftruncate",
                       path);
             close(fd);
             return -1;
@@ -3436,7 +3452,7 @@ switchLogRollback(void)
             if (trimToLastNewline(elogFname, &truncateTo) < 0
                 || deltaRecordBaselineEnd(truncateTo) < 0) {
                 chuser(batchId);
-                ls_syslog(LOG_ERR, "\
+                SWITCH_LOG(LOG_ERR, "\
 %s: cannot prepare %s for the merge back; no file is deleted, recovery \
 is retried later", fname, elogFname);
                 return -1;
@@ -3445,7 +3461,7 @@ is retried later", fname, elogFname);
 
         if (appendDeltaTo(elogFname, truncateTo, &copied) < 0) {
             chuser(batchId);
-            ls_syslog(LOG_ERR, "\
+            SWITCH_LOG(LOG_ERR, "\
 %s: cannot append %s back to %s; no file is deleted, recovery is \
 retried later", fname, deltaElogFname, elogFname);
             return -1;
@@ -3455,7 +3471,7 @@ retried later", fname, deltaElogFname, elogFname);
     chuser(batchId);
 
     if (copied > 0)
-        ls_syslog(LOG_INFO, "\
+        SWITCH_LOG(LOG_INFO, "\
 %s: %lld bytes of delta events merged back into %s", fname,
                   (long long)copied, elogFname);
 
@@ -3483,7 +3499,7 @@ switchLogPublish(const char *fname)
 
     if (rename(tmpElogFname, elogFname) < 0) {
         chuser(batchId);
-        ls_syslog(LOG_ERR, I18N_FUNC_S_S_FAIL_M, fname, "rename",
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_S_FAIL_M, fname, "rename",
                   tmpElogFname, elogFname);
         return -1;
     }
@@ -3493,7 +3509,7 @@ switchLogPublish(const char *fname)
     elogWriteTarget = elogFname;
 
     if (unlink(deltaElogFname) < 0 && errno != ENOENT)
-        ls_syslog(LOG_WARNING, I18N_FUNC_S_FAIL_M, fname, "unlink",
+        SWITCH_LOG(LOG_WARNING, I18N_FUNC_S_FAIL_M, fname, "unlink",
                   deltaElogFname);
 
     chuser(batchId);
@@ -3545,12 +3561,12 @@ switchLogRollForward(void)
     /* the rotation is unfinished as long as the archive segment exists */
     if (stat(event0Fname, &st) == 0) {
 
-        ls_syslog(LOG_INFO, "\
+        SWITCH_LOG(LOG_INFO, "\
 %s: finishing the archive rotation of an interrupted switch", fname);
 
         if ((totalEventFile = renameElogFiles()) <= 0) {
             chuser(batchId);
-            ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "renameElogFiles");
+            SWITCH_LOG(LOG_ERR, I18N_FUNC_FAIL, fname, "renameElogFiles");
             return -1;
         }
 
@@ -3560,7 +3576,7 @@ switchLogRollForward(void)
 
         chuser(managerId);
         if (updateJobIdIndexFile(indexFile, elogFname, totalEventFile) < 0)
-            ls_syslog(LOG_ERR, "\
+            SWITCH_LOG(LOG_ERR, "\
 %s: updateJobIdIndexFile(%s) failed: %s; the next switch rebuilds it",
                       fname, indexFile, lsb_sysmsg());
     }
@@ -3582,7 +3598,7 @@ switchLogRollForward(void)
             if (stat(tmpElogFname, &tmpSt) < 0
                 || deltaRecordBaselineEnd(tmpSt.st_size) < 0) {
                 chuser(batchId);
-                ls_syslog(LOG_ERR, "\
+                SWITCH_LOG(LOG_ERR, "\
 %s: cannot record the merge point in %s; no file is deleted, recovery \
 is retried later", fname, deltaElogFname);
                 return -1;
@@ -3591,7 +3607,7 @@ is retried later", fname, deltaElogFname);
 
         if (appendDeltaTo(tmpElogFname, truncateTo, &copied) < 0) {
             chuser(batchId);
-            ls_syslog(LOG_ERR, "\
+            SWITCH_LOG(LOG_ERR, "\
 %s: cannot merge %s into %s; no file is deleted, recovery is retried \
 later", fname, deltaElogFname, tmpElogFname);
             return -1;
@@ -3603,7 +3619,7 @@ later", fname, deltaElogFname, tmpElogFname);
     if (switchLogPublish(fname) < 0)
         return -1;
 
-    ls_syslog(LOG_INFO, "\
+    SWITCH_LOG(LOG_INFO, "\
 %s: %s published, %lld bytes of delta events merged", fname, elogFname,
               (long long)copied);
     return 0;
@@ -3692,7 +3708,7 @@ switchLogRecover(int expect)
     /* nothing left over: the only state a complete round never shows */
     if (!haveTmp && !haveDelta && !haveZero) {
         if (expect == RECOVER_EXPECT_COMPLETE)
-            ls_syslog(LOG_ERR, "\
+            SWITCH_LOG(LOG_ERR, "\
 %s: the switch child exited 0 but left no files at all; %s and %s are \
 gone, the round is lost and %s stays the event log", fname,
                       tmpElogFname, deltaElogFname, elogFname);
@@ -3725,7 +3741,7 @@ gone, the round is lost and %s stays the event log", fname,
 
     if (!asExpected) {
         if (expect == RECOVER_EXPECT_COMPLETE)
-            ls_syslog(LOG_ERR, "\
+            SWITCH_LOG(LOG_ERR, "\
 %s: the switch child exited 0 but its files do not look complete \
 (tmp=%s delta=%s .0=%s); this is a child bug or a lost write, the round \
 is handled from what is on disk", fname,
@@ -3733,7 +3749,7 @@ is handled from what is on disk", fname,
                       haveDelta ? "yes" : "no",
                       haveZero ? "yes" : "no");
         else
-            ls_syslog(LOG_WARNING, "\
+            SWITCH_LOG(LOG_WARNING, "\
 %s: an interrupted event log switch left files behind (%s%s%s); \
 recovering", fname,
                       haveTmp ? "tmp " : "",
@@ -3751,13 +3767,13 @@ recovering", fname,
              */
             chuser(managerId);
             if (unlink(deltaElogFname) < 0 && errno != ENOENT)
-                ls_syslog(LOG_WARNING, I18N_FUNC_S_FAIL_M, fname,
+                SWITCH_LOG(LOG_WARNING, I18N_FUNC_S_FAIL_M, fname,
                           "unlink", deltaElogFname);
             if (haveZero)
                 unlink(event0Fname);
             chuser(batchId);
             switchState = SWITCH_IDLE;
-            ls_syslog(LOG_INFO, "\
+            SWITCH_LOG(LOG_INFO, "\
 %s: the previous switch had already published %s; leftover delta removed",
                       fname, elogFname);
             return;
@@ -3769,7 +3785,7 @@ recovering", fname,
         unlink(event0Fname);
         chuser(batchId);
         switchState = SWITCH_IDLE;
-        ls_syslog(LOG_INFO, "\
+        SWITCH_LOG(LOG_INFO, "\
 %s: removed the leftover %s of an interrupted synchronous switch",
                   fname, event0Fname);
         return;
@@ -3816,11 +3832,11 @@ recovering", fname,
     if (tmpSt.st_mtime >= activeSt.st_mtime) {
         if (switchLogRollForward() < 0)
             switchState = SWITCH_STALLED;
-        ls_syslog(LOG_WARNING, "\
+        SWITCH_LOG(LOG_WARNING, "\
 %s: the delta file of the interrupted switch was missing; events logged \
 during that switch window are lost", fname);
     } else {
-        ls_syslog(LOG_ERR, "\
+        SWITCH_LOG(LOG_ERR, "\
 %s: %s is older than %s and cannot belong to it; a stale leftover is \
 never published, dropping it", fname, tmpElogFname, elogFname);
         switchLogDropRound("stale baseline from an older generation");
@@ -3830,7 +3846,7 @@ never published, dropping it", fname, tmpElogFname, elogFname);
 unreadable:
     chuser(batchId);
 unreadable_nochuser:
-    ls_syslog(LOG_ERR, "\
+    SWITCH_LOG(LOG_ERR, "\
 %s: cannot stat the switch files in %s/logdir (%m); recovery is skipped \
 for now and retried later", fname,
               daemonParams[LSB_SHAREDIR].paramValue);
@@ -3879,12 +3895,12 @@ switchLogPrepare(void)
              * mbatchd is restarted.
              */
             switchState = SWITCH_STALLED;
-            ls_syslog(LOG_ERR, "\
+            SWITCH_LOG(LOG_ERR, "\
 %s: %s already exists, so a previous switch_log did not finish; this \
 switch is skipped and the leftover is recovered on the next trigger",
                       fname, tmpElogFname);
         } else
-            ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "open",
+            SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "open",
                       tmpElogFname);
         return -1;
     }
@@ -3904,7 +3920,7 @@ switch is skipped and the leftover is recovered on the next trigger",
      * Creating it with "w" also discards any stale leftover.
      */
     if ((fp = fopen(deltaElogFname, "w")) == NULL) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen",
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen",
                   deltaElogFname);
         chuser(batchId);
         switchLogAbortPrepare();
@@ -3945,18 +3961,18 @@ switchLogChildMain(void)
 
     /* 1. archive segment of the frozen active file */
     if (createEvent0File() < 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "createEvent0File");
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_FAIL, fname, "createEvent0File");
         _exit(SWITCH_CHILD_EXIT_FAIL);
     }
 
     /* 2. compressed baseline of the frozen active file */
     if ((tmpfp = fopen(tmpElogFname, "w")) == NULL) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", tmpElogFname);
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", tmpElogFname);
         _exit(SWITCH_CHILD_EXIT_FAIL);
     }
 
     if ((efp = fopen(elogFname, "r")) == NULL) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", elogFname);
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fopen", elogFname);
         _exit(SWITCH_CHILD_EXIT_FAIL);
     }
 
@@ -3966,7 +3982,7 @@ switchLogChildMain(void)
     initQueueCtrlTable();
 
     if (scanBaselineEvents(efp, tmpfp, tmpElogFname, TRUE) < 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "scanBaselineEvents");
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_FAIL, fname, "scanBaselineEvents");
         _exit(SWITCH_CHILD_EXIT_FAIL);
     }
     FCLOSEUP(&efp);
@@ -4005,7 +4021,7 @@ switchLogChildMain(void)
      *    that matters: either the digits are there or they are not.
      */
     if (fflush(tmpfp) != 0 || fsync(fileno(tmpfp)) < 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpElogFname);
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpElogFname);
         _exit(SWITCH_CHILD_EXIT_FAIL);
     }
 
@@ -4013,18 +4029,18 @@ switchLogChildMain(void)
     fprintf(tmpfp, "#%ld", pos);
 
     if (fflush(tmpfp) != 0 || fsync(fileno(tmpfp)) < 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpElogFname);
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpElogFname);
         _exit(SWITCH_CHILD_EXIT_FAIL);
     }
 
     if (FCLOSEUP(&tmpfp) < 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fclose", tmpElogFname);
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fclose", tmpElogFname);
         _exit(SWITCH_CHILD_EXIT_FAIL);
     }
 
     /* 6. rotate .N -> .N+1 ... .0 -> .1 */
     if ((totalEventFile = renameElogFiles()) <= 0) {
-        ls_syslog(LOG_ERR, I18N_FUNC_FAIL, fname, "renameElogFiles");
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_FAIL, fname, "renameElogFiles");
         _exit(SWITCH_CHILD_EXIT_FAIL);
     }
 
@@ -4039,11 +4055,11 @@ switchLogChildMain(void)
 
     chuser(managerId);
     if (updateJobIdIndexFile(indexFile, elogFname, totalEventFile) < 0)
-        ls_syslog(LOG_ERR, "\
+        SWITCH_LOG(LOG_ERR, "\
 %s: updateJobIdIndexFile(%s) failed: %s; the next switch rebuilds it",
                   fname, indexFile, lsb_sysmsg());
 
-    ls_syslog(LOG_INFO, "\
+    SWITCH_LOG(LOG_INFO, "\
 %s: switch child done, %d archive files", fname, totalEventFile);
 
     _exit(SWITCH_CHILD_EXIT_OK);
@@ -4062,12 +4078,12 @@ forkSwitchLog(void)
     pid_t       pid;
 
     if (switchState != SWITCH_IDLE) {
-        ls_syslog(LOG_DEBUG, "\
+        SWITCH_LOG(LOG_DEBUG, "\
 %s: previous switch_log is still in state %d", fname, switchState);
         return -1;
     }
 
-    ls_syslog(LOG_INFO, "\
+    SWITCH_LOG(LOG_INFO, "\
 %s: switching event log file %s in a child process", fname, elogFname);
 
     if (switchLogPrepare() < 0)
@@ -4129,7 +4145,7 @@ forkSwitchLog(void)
         elogWriteTarget = elogFname;
         sigprocmask(SIG_SETMASK, &oldmask, NULL);
         switchLogAbortPrepare();
-        ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "fork");
+        SWITCH_LOG(LOG_ERR, I18N_FUNC_FAIL_M, fname, "fork");
         return -1;
     }
 
@@ -4142,7 +4158,7 @@ forkSwitchLog(void)
 
     sigprocmask(SIG_SETMASK, &oldmask, NULL);
 
-    ls_syslog(LOG_INFO, "%s: switch child pid %d started", fname, (int)pid);
+    SWITCH_LOG(LOG_INFO, "%s: switch child pid %d started", fname, (int)pid);
 
     return 0;
 }
@@ -4159,7 +4175,7 @@ forkSwitchLog(void)
 static void
 switchLogReportStalled(const char *fname)
 {
-    ls_syslog(LOG_ERR, "\
+    SWITCH_LOG(LOG_ERR, "\
 %s: the switch did not complete; %s is still the valid active event file \
 and no file was deleted.  New events go to %s until the round is \
 recovered, which is retried automatically on the next switch trigger",
@@ -4215,7 +4231,7 @@ switchLogKillChild(void)
     if (pid <= 0)
         return;
 
-    ls_syslog(LOG_INFO, "\
+    SWITCH_LOG(LOG_INFO, "\
 %s: killing switch child pid %d before exiting; the next mbatchd \
 recovers the interrupted switch", __func__, (int)pid);
 
@@ -4265,10 +4281,10 @@ switchLogCheckChild(void)
     } else {
         expect = RECOVER_EXPECT_INTERRUPTED;
         if (WIFSIGNALED(status))
-            ls_syslog(LOG_ERR, "\
+            SWITCH_LOG(LOG_ERR, "\
 %s: the switch child was killed by signal %d", fname, WTERMSIG(status));
         else
-            ls_syslog(LOG_ERR, "\
+            SWITCH_LOG(LOG_ERR, "\
 %s: the switch child failed with exit code %d", fname,
                       WIFEXITED(status) ? WEXITSTATUS(status) : -1);
     }
