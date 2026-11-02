@@ -203,6 +203,7 @@ static char            *elogWriteTarget = elogFname;
 
 static int              switchState = SWITCH_IDLE;  /* SWITCH_*, only changed by the main loop */
 static time_t           switchStartTime;    /* frozen before the fork */
+static int              switchChildKillSent;  /* watchdog already killed this child */
 
 /*
  * Filled in by the SIGCHLD handler.  switchChildPid is only written by
@@ -2579,14 +2580,22 @@ switchELog (void)
      * forward or back.  Checked independently of numRemoveJobs, or a
      * quiet cluster would never notice the hang.
      */
+    /*
+     * Kill only once per child.  A child blocked in an uninterruptible
+     * NFS call (D state) keeps the SIGKILL pending until that call
+     * returns, which can take hours; re-sending it and logging an ERROR
+     * on every main loop iteration would only flood the log.
+     */
     if (switchState == SWITCH_CHILD_RUNNING && switchChildPid > 0
-        && !switchChildDone
+        && !switchChildDone && !switchChildKillSent
         && time(0) - switchStartTime > SWITCH_CHILD_MAX_RUNTIME) {
         ls_syslog(LOG_ERR, "\
-%s: switch child pid %d is still running after %d seconds, killing it",
+%s: switch child pid %d is still running after %d seconds, killing it; \
+the round is recovered once the child is reaped",
                   __func__, (int)switchChildPid,
                   (int)(time(0) - switchStartTime));
         kill(switchChildPid, SIGKILL);
+        switchChildKillSent = TRUE;
     }
 
     if (numRemoveJobs < maxjobnum)
@@ -4154,6 +4163,7 @@ forkSwitchLog(void)
      * which exits immediately is still matched by the handler.
      */
     switchChildPid = pid;
+    switchChildKillSent = FALSE;
     switchState = SWITCH_CHILD_RUNNING;
 
     sigprocmask(SIG_SETMASK, &oldmask, NULL);
