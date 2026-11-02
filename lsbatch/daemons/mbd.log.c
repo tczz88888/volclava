@@ -4151,9 +4151,13 @@ forkSwitchLog(void)
     }
 
     if (pid < 0) {
+        /* the cleanup below clobbers errno; %m must report the fork */
+        int forkErrno = errno;
+
         elogWriteTarget = elogFname;
         sigprocmask(SIG_SETMASK, &oldmask, NULL);
         switchLogAbortPrepare();
+        errno = forkErrno;
         SWITCH_LOG(LOG_ERR, I18N_FUNC_FAIL_M, fname, "fork");
         return -1;
     }
