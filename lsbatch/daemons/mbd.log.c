@@ -4582,13 +4582,17 @@ createEvent0File (void)
              * silently - and the switch would then publish and rotate a
              * damaged archive as if nothing happened.  cc was already
              * clipped to the captured size above, so anything less than
-             * cc means lost bytes.
+             * cc means lost bytes.  On every failure below the partial
+             * copy is removed: it is never used, and on a full disk it
+             * would otherwise keep the space every later event write
+             * needs.
              */
             if (fwrite(buf, 1, cc, event0Ptr) != (size_t)cc) {
                 chuser(batchId);
                 ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "fwrite");
                 FCLOSEUP(&eventPtr);
                 FCLOSEUP(&event0Ptr);
+                unlink(event0File);
                 return (-1);
             }
             nread += cc;
@@ -4599,6 +4603,7 @@ createEvent0File (void)
             ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fread", elogFname);
             FCLOSEUP(&eventPtr);
             FCLOSEUP(&event0Ptr);
+            unlink(event0File);
             return (-1);
         }
     }
@@ -4615,12 +4620,14 @@ createEvent0File (void)
         chuser(batchId);
         ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", event0File);
         FCLOSEUP(&event0Ptr);
+        unlink(event0File);
         return (-1);
     }
 
     if (FCLOSEUP(&event0Ptr) < 0) {
         chuser(batchId);
         ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fclose", event0File);
+        unlink(event0File);
         return (-1);
     }
 
