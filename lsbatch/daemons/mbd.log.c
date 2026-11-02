@@ -216,6 +216,7 @@ static volatile sig_atomic_t   switchChildDone = 0;
 static volatile sig_atomic_t   switchChildStatus = 0;
 
 static void             switchLogRecover(int);
+static void             switchLogParkRound(void);
 static void             switchChildCheckParent(void);
 static int              forkSwitchLog(void);
 static int              switchLogPrepare(void);
@@ -3637,6 +3638,30 @@ later", fname, deltaElogFname, tmpElogFname);
 }
 
 /*
+ * Park a round whose rollback or roll forward failed, so that it is
+ * retried from switchELog().  Every event logged until then must go to
+ * lsb.events.delta, whatever the route was before:
+ *
+ *   - on a later roll forward, lsb.events is replaced by the published
+ *     baseline, so events written to it in the meantime would be lost;
+ *   - on a later rollback, the delta is appended to lsb.events, so
+ *     newer events already written there would end up in front of the
+ *     older delta events and replay would see them out of order.
+ *
+ * While a child runs the route is on the delta anyway; this matters for
+ * the startup entry point, where the route still points at lsb.events.
+ * Only for a round known to exist: the unreadable-directory path does
+ * not park through here, since creating a delta file there could later
+ * be mistaken for the leftover of a finished publish.
+ */
+static void
+switchLogParkRound(void)
+{
+    elogWriteTarget = deltaElogFname;
+    switchState = SWITCH_STALLED;
+}
+
+/*
  * Decide what an interrupted round left behind and finish or undo it.
  *
  * This is the single detection and recovery entry point.  It runs at
@@ -3807,7 +3832,7 @@ recovering", fname,
          * to the old active file, without one there is nothing to save */
         if (haveDelta) {
             if (switchLogRollback() < 0)
-                switchState = SWITCH_STALLED;
+                switchLogParkRound();
         } else {
             switchLogDropRound("baseline incomplete, no delta events");
         }
@@ -3816,7 +3841,7 @@ recovering", fname,
 
     if (haveDelta) {
         if (switchLogRollForward() < 0)
-            switchState = SWITCH_STALLED;
+            switchLogParkRound();
         return;
     }
 
@@ -3842,7 +3867,7 @@ recovering", fname,
 
     if (tmpSt.st_mtime >= activeSt.st_mtime) {
         if (switchLogRollForward() < 0)
-            switchState = SWITCH_STALLED;
+            switchLogParkRound();
         SWITCH_LOG(LOG_WARNING, "\
 %s: the delta file of the interrupted switch was missing; events logged \
 during that switch window are lost", fname);
