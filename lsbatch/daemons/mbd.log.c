@@ -4204,7 +4204,10 @@ switchLogChildMain(void)
  * each archive rename - and does both: a getppid() check that catches
  * a parent that is already gone, and a fresh PR_SET_PDEATHSIG that kills
  * the child immediately if the parent dies before the next credential
- * change.  SIGKILL, not SIGTERM: nothing may run, nothing may flush.
+ * change.  The getppid() check is the guarantee; the death signal only
+ * shortens how long an orphan keeps running inside the current phase.
+ * Both together cost about 0.3 us per call, nothing next to an NFS
+ * rename.  SIGKILL, not SIGTERM: nothing may run, nothing may flush.
  * The fork must stay on the main thread - the death signal fires when
  * the forking thread exits.
  *
