@@ -21,9 +21,7 @@
 #include "mbd.fairshare.h"
 #include "mbd.rsrclimit.h"
 #include <sched.h>
-#ifdef __linux__
 #include <sys/prctl.h>
-#endif
 
 #define NL_SETN         10
 
@@ -4223,12 +4221,10 @@ switchChildCheckParent(void)
     if (getppid() != switchParentPid)
         _exit(SWITCH_CHILD_EXIT_FAIL);
 
-#ifdef __linux__
     prctl(PR_SET_PDEATHSIG, SIGKILL);
     /* the parent may have died between the check and prctl() */
     if (getppid() != switchParentPid)
         _exit(SWITCH_CHILD_EXIT_FAIL);
-#endif
 }
 
 /*
