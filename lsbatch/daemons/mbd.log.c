@@ -2578,16 +2578,6 @@ void
 switchELog (void)
 {
     /*
-     * Called from periodicCheck() and at the end of init_log():
-     *   Step 1: watchdog - kill a switch child that runs far too long
-     *   Step 2: nothing to do until MAX_JOB_NUM jobs were cleaned
-     *   Step 3a (LSB_FORK_ROTATE=Y, not in replay): retry a stalled
-     *           round, then fork a new switch child
-     *   Step 3b (otherwise): synchronous switch_log()
-     *   Step 4: update numRemoveJobs from the outcome
-     */
-
-    /*
      * Step 1: a child that cannot be reaped is a hung child (an NFS operation
      * that never returns is the realistic cause).  Kill it so that the
      * round stops blocking every further rotation; the SIGCHLD path
@@ -2613,12 +2603,12 @@ the round is recovered once the child is reaped",
         switchChildKillSent = TRUE;
     }
 
-    /* Step 2 */
+    /* Step 2: nothing to do until MAX_JOB_NUM finished jobs were cleaned */
     if (numRemoveJobs < maxjobnum)
         return;
 
     /*
-     * Step 3a: the fork based rotation needs a fully initialized mbatchd;
+     * Step 3a: fork based switch.  It needs a fully initialized mbatchd;
      * during replay the switch is always done synchronously.
      */
     if (lsbForkRotate && mSchedStage != M_STAGE_REPLAY) {
@@ -2646,7 +2636,7 @@ the round is recovered once the child is reaped",
         return;
     }
 
-    /* Step 3b + 4 */
+    /* Step 3b: synchronous switch; Step 4: reset or back off the counter */
     if (switch_log() == 0)
         numRemoveJobs = 0;
     else
@@ -2933,19 +2923,8 @@ switch_log(void)
     int                    totalEventFile;
     char                   indexFile[MAXFILENAMELEN];
     /*
-     * Synchronous switch, all in the main process:
-     *   Step 1: refuse to run while another switch still owns the files
-     *   Step 2: build lsb.events.0 (archive segment of the active file)
-     *   Step 3: scan lsb.events into lsb.events.tmp (the new baseline)
-     *   Step 4: write the history seek position into the .tmp header
-     *   Step 5: publish: rename lsb.events.tmp -> lsb.events
-     *   Step 6: log HOST_CTRL / QUEUE_CTRL / LOG_SWITCH into the new file
-     *   Step 7: rotate the archives .N -> .N+1 ... .0 -> .1
-     *   Step 8: rebuild lsb.events.index in a forked child
-     */
-
-    /*
-     * Step 1a: when switch_log is triggered frequently, multiple child
+     * Step 1a: refuse to run while the previous index rebuild runs.
+     * When switch_log is triggered frequently, multiple child
      * processes may simultaneously read and write lsb.event.index. It is
      * necessary to ensure that only one child process operates on this index
      * file at any given time.
@@ -2956,7 +2935,8 @@ switch_log(void)
     }
 
     /*
-     * Step 1b: the synchronous switch truncates lsb.events.tmp, rewrites
+     * Step 1b: refuse to run on top of an unfinished fork based round.
+     * The synchronous switch truncates lsb.events.tmp, rewrites
      * lsb.events.0 and renames over lsb.events, so it must never run on
      * top of an unfinished fork based round: the round's delta events
      * would be orphaned and later discarded as a finished publish.  The
