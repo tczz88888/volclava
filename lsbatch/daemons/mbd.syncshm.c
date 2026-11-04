@@ -930,7 +930,6 @@ createShmCleanerThread(void)
     pthread_t tid;
     int rc;
 
-    /* SIGCHLD must stay on the main thread, see mbdCreateThread() */
     rc = mbdCreateThread(&tid, shmCleaner, NULL);
     if (rc != 0)
         return -1;

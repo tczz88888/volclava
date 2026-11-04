@@ -1013,7 +1013,6 @@ int initQmbdEventSender(void)
     if (sem_init(&qmbdSubmitWakeSem, 0, 0) < 0)
         return -1;
 
-    /* SIGCHLD must stay on the main thread, see mbdCreateThread() */
     rc = mbdCreateThread(&qmbdSenderTid, qmbdSenderThread, NULL);
     if (rc != 0)
         return -1;
