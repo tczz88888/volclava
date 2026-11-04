@@ -1507,6 +1507,7 @@ extern void                 switchLogChildReaped(pid_t, int);
 extern void                 switchLogCheckChild(void);
 extern int                  switchLogChildRunning(void);
 extern void                 switchLogKillChild(void);
+extern int                  mbdCreateThread(pthread_t *, void *(*)(void *), void *);
 extern void                 checkAcctLog(void);
 extern int                  switchAcctLog(void);
 extern void                 logJobInfo(struct submitReq *, struct jData *,

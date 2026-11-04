@@ -1343,6 +1343,40 @@ checkParams (struct infoReq *req, struct parameterInfo *reply)
     reply->eadminTriggerInterval = eadminTriggerInterval;
 }
 
+/*
+ * Create a background thread of mbatchd that never handles SIGCHLD.
+ *
+ * SIGCHLD is directed at the process, so the kernel may deliver it to
+ * any thread that does not block it, and child_handler() would then run
+ * there.  The main thread relies on blocking SIGCHLD with sigprocmask()
+ * for short critical sections - forkSwitchLog() registers the switch
+ * child pid that way - and a handler running on another thread ignores
+ * that mask: it could reap the switch child before its pid is known and
+ * drop the result, leaving the switch waiting forever.  SIGCHLD is
+ * blocked around pthread_create() so that the new thread inherits the
+ * blocked mask from its first instruction; blocking it inside the thread
+ * function would leave a window right after the thread starts.
+ *
+ * @param[out] tid: Created thread id.
+ * @param[in] start: Thread function.
+ * @param[in] arg: Argument of the thread function.
+ * @return: the pthread_create() result, 0 on success.
+ */
+int
+mbdCreateThread(pthread_t *tid, void *(*start)(void *), void *arg)
+{
+    sigset_t block, old;
+    int      rc;
+
+    sigemptyset(&block);
+    sigaddset(&block, SIGCHLD);
+    pthread_sigmask(SIG_BLOCK, &block, &old);
+    rc = pthread_create(tid, NULL, start, arg);
+    pthread_sigmask(SIG_SETMASK, &old, NULL);
+
+    return rc;
+}
+
 void
 mbdDie (int sig)
 {
