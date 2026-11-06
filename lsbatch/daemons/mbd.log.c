@@ -3886,8 +3886,8 @@ switchLogUndoRollback(void)
     if (cc < 0 || (fd = open(elogFname, O_WRONLY)) < 0) {
         chuser(batchId);
         SWITCH_LOG(LOG_ERR, "\
-switchLogRecover: Fail to undo the merge of the interrupted lsb.events \
-switch: %m; its events may be loaded twice after a restart");
+%s: Fail to undo the merge of the interrupted lsb.events switch: %m; \
+its events may be loaded twice after a restart", __func__);
         return;
     }
 
@@ -3898,8 +3898,8 @@ switch: %m; its events may be loaded twice after a restart");
         chuser(batchId);
         errno = saveErrno;
         SWITCH_LOG(LOG_ERR, "\
-switchLogRecover: Fail to undo the merge of the interrupted lsb.events \
-switch: %m; its events may be loaded twice after a restart");
+%s: Fail to undo the merge of the interrupted lsb.events switch: %m; \
+its events may be loaded twice after a restart", __func__);
         return;
     }
 
@@ -4209,9 +4209,12 @@ switch is due", fname);
 
     /*
      * READY but the delta is gone: only reachable when someone removed it
-     * by hand.  Note .0 only says the rotation is not finished, not that
-     * it has not started; nobody deletes files during a switch, so the
-     * round is simply dropped.
+     * by hand, or after a power loss on a file system that does not keep
+     * the order of metadata updates (see the design limits: the log
+     * directory must be on a journaling file system or a sync exported
+     * NFS).  Note .0 only says the rotation is not finished, not that it
+     * has not started; neither case is expected, so the round is simply
+     * dropped.
      */
     if (haveZero) {
         if (switchLogDropRound() < 0) {

@@ -1375,9 +1375,9 @@ extracted and the archive files are rotated.
 .PP
 When set to Y, and the number of cleaned finished jobs has reached
 \fBMAX_JOB_NUM\fR while the previous switch has completed, mbatchd creates
-lsb.events.tmp, lsb.events.0 and lsb.events.delta, moves the event logging
-to lsb.events.delta and forks a child process. The child builds the new
-event file and the archive segment, rotates lsb.events.\fIN\fR and rebuilds
+lsb.events.tmp and lsb.events.delta, moves the event logging to
+lsb.events.delta and forks a child process. The child builds the archive
+segment lsb.events.0 and the new event file, rotates lsb.events.\fIN\fR and rebuilds
 lsb.events.index, while mbatchd keeps serving requests. When the child
 finishes, mbatchd appends lsb.events.delta to lsb.events.tmp, publishes it
 as the new lsb.events and removes lsb.events.delta.
