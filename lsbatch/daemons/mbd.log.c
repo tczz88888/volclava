@@ -231,6 +231,7 @@ static void             switchLogChildMain(void);
 static void             switchChildFail(int);
 static int              elogHeaderNumbers(const char *, long *, long *);
 static int              deltaRecordedPoint(const char *, off_t *);
+static void             switchLogUndoRollback(void);
 static int              deltaRecordBaselineEnd(off_t);
 static int              appendDeltaTo(const char *, off_t, off_t *);
 static int              trimToLastNewline(const char *, off_t *);
@@ -3860,6 +3861,55 @@ switchLogRollForward(int expectDelta)
 }
 
 /*
+ * Undo a failed rollback: cut lsb.events back to the length recorded in
+ * the delta header, removing whatever part of the delta was appended.
+ * A parked round keeps its events in lsb.events.delta only; otherwise a
+ * restart would replay them twice, once from lsb.events and once from
+ * the delta (switchLogReplayDelta()).  Safe because lsb.events is not
+ * written while the round is parked: the route is on the delta.
+ */
+static void
+switchLogUndoRollback(void)
+{
+    off_t point;
+    int   fd;
+    int   cc;
+
+    chuser(managerId);
+    cc = deltaRecordedPoint(elogFname, &point);
+    if (cc == 0) {
+        /* nothing recorded, so nothing was appended */
+        chuser(batchId);
+        return;
+    }
+
+    if (cc < 0 || (fd = open(elogFname, O_WRONLY)) < 0) {
+        chuser(batchId);
+        SWITCH_LOG(LOG_ERR, "\
+switchLogRecover: Fail to undo the merge of the interrupted lsb.events \
+switch: %m; its events may be loaded twice after a restart");
+        return;
+    }
+
+    if (ftruncate(fd, point) < 0 || fsync(fd) < 0) {
+        int saveErrno = errno;
+
+        close(fd);
+        chuser(batchId);
+        errno = saveErrno;
+        SWITCH_LOG(LOG_ERR, "\
+switchLogRecover: Fail to undo the merge of the interrupted lsb.events \
+switch: %m; its events may be loaded twice after a restart");
+        return;
+    }
+
+    close(fd);
+    chuser(batchId);
+    SWITCH_LOG(LOG_DEBUG, "switchLogUndoRollback: %s cut back to %lld bytes",
+               elogFname, (long long)point);
+}
+
+/*
  * Park a round whose rollback or roll forward failed, so that it is
  * retried from switchELog().  Every event logged until then must go to
  * lsb.events.delta, whatever the route was before:
@@ -4119,18 +4169,19 @@ switch is due", fname);
     if (!ready) {
         /*
          * No archive was touched yet.  The delta events go back to the old
-         * active file, then the round is dropped.  If the drop cannot
-         * commit, the merged round is parked: the retry cuts lsb.events
-         * back to the recorded point and appends the whole delta again,
-         * including what was logged in the meantime.
+         * active file, then the round is dropped.  If either step fails,
+         * whatever was appended is cut off again before the round is
+         * parked, so that the delta events are never in both files.
          */
         if ((haveDelta && switchLogRollback() < 0)
             || switchLogDropRound() < 0) {
             saveErrno = errno;
-            if (haveDelta)
+            if (haveDelta) {
+                switchLogUndoRollback();
                 switchLogParkRound();
-            else
+            } else {
                 switchState = SWITCH_STALLED;
+            }
             goto failed;
         }
 
