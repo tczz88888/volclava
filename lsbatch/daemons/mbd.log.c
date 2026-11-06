@@ -192,6 +192,9 @@ static char             jlogFname[MAXFILENAMELEN];
  * overwritten with the history seek position once the baseline is done */
 #define ELOG_BASELINE_HEADER    "#                                     \n"
 
+/* elogHeaderNumbers(): the file could not be opened or read */
+#define ELOG_HEADER_UNREADABLE  (-2)
+
 static char             tmpElogFname[MAXFILENAMELEN];   /* lsb.events.tmp: new baseline under construction */
 static char             event0Fname[MAXFILENAMELEN];     /* lsb.events.0: archive segment before rotation */
 static char             deltaElogFname[MAXFILENAMELEN];  /* lsb.events.delta: events logged while a child runs */
@@ -227,6 +230,7 @@ static void             switchLogAbortPrepare(void);
 static void             switchLogChildMain(void);
 static void             switchChildFail(int);
 static int              elogHeaderNumbers(const char *, long *, long *);
+static int              deltaRecordedPoint(const char *, off_t *);
 static int              deltaRecordBaselineEnd(off_t);
 static int              appendDeltaTo(const char *, off_t, off_t *);
 static int              trimToLastNewline(const char *, off_t *);
@@ -3152,8 +3156,11 @@ Fail to switch lsb.events; see mbatchd error log for details");
  * @param[in] path: Event file to inspect.
  * @param[out] first: First header number, untouched if absent; may be NULL.
  * @param[out] second: Second header number, untouched if absent; may be NULL.
- * @return: count of numbers present (0, 1 or 2), -1 if the file cannot
- *          be opened or does not start with '#'.
+ * @return: count of numbers present (0, 1 or 2), -1 if the file does not
+ *          start with '#' (an empty file included), ELOG_HEADER_UNREADABLE
+ *          with errno set if it cannot be opened or read - which says
+ *          nothing about its content and must not be taken as "raw" or
+ *          "not recorded".
  */
 static int
 elogHeaderNumbers(const char *path, long *first, long *second)
@@ -3165,11 +3172,18 @@ elogHeaderNumbers(const char *path, long *first, long *second)
     int   cc;
 
     if ((fp = fopen(path, "r")) == NULL)
-        return -1;
+        return ELOG_HEADER_UNREADABLE;
 
     /* %c%ld %ld stops at the first unconvertible field, so the return
      * value doubles as "how much of the header is filled in" */
     cc = fscanf(fp, "%c%ld %ld", &ch, &a, &b);
+    if (ferror(fp)) {
+        int saveErrno = errno;
+
+        FCLOSEUP(&fp);
+        errno = saveErrno;
+        return ELOG_HEADER_UNREADABLE;
+    }
     FCLOSEUP(&fp);
 
     if (cc < 1 || ch != '#')
@@ -3230,6 +3244,56 @@ deltaRecordBaselineEnd(off_t baselineEnd)
 
     close(fd);
     return 0;
+}
+
+/*
+ * Read the merge point recorded in the delta header and check that it
+ * can be cut back to.  A usable point lies inside the target, behind its
+ * header, right after a complete record; anything else is a damaged
+ * record and is treated as "nothing recorded", which never truncates.
+ * @param[in] target: Merge target, lsb.events or lsb.events.tmp.
+ * @param[out] point: The recorded point, set only when 1 is returned.
+ * @return: 1 if a usable point is recorded, 0 if none is, -1 with errno
+ *          set if the delta or the target cannot be read.
+ */
+static int
+deltaRecordedPoint(const char *target, off_t *point)
+{
+    struct stat st;
+    long        recorded = -1;
+    char        ch;
+    int         cc;
+    int         fd;
+
+    cc = elogHeaderNumbers(deltaElogFname, NULL, &recorded);
+    if (cc == ELOG_HEADER_UNREADABLE)
+        return -1;
+    if (cc < 2)
+        return 0;
+
+    if (stat(target, &st) < 0)
+        return -1;
+    if (recorded < (long)(sizeof(ELOG_BASELINE_HEADER) - 1)
+        || recorded > (long)st.st_size)
+        return 0;
+
+    /* every record ends with a newline, so does every header */
+    if ((fd = open(target, O_RDONLY)) < 0)
+        return -1;
+    cc = pread(fd, &ch, 1, (off_t)recorded - 1);
+    if (cc < 0) {
+        int saveErrno = errno;
+
+        close(fd);
+        errno = saveErrno;
+        return -1;
+    }
+    close(fd);
+    if (cc != 1 || ch != '\n')
+        return 0;
+
+    *point = (off_t)recorded;
+    return 1;
 }
 
 /*
@@ -3537,8 +3601,8 @@ static int
 switchLogRollback(void)
 {
     static char fname[] = "switchLogRollback";
-    struct stat st, activeSt;
-    long        recorded = -1;
+    struct stat st;
+    int         recorded;
     int         saveErrno;
     off_t       truncateTo = -1;
     off_t       copied = 0;
@@ -3572,16 +3636,17 @@ switchLogRollback(void)
 
         /*
          * Step 2: find or record where lsb.events ended before the merge.
-         * A recorded point must lie within the current file, anything else
-         * is a damaged record, written before any byte was appended.
+         * A recorded point means a previous rollback attempt died half
+         * way; its partial append is cut off before appending again.
          */
-        if (elogHeaderNumbers(deltaElogFname, NULL, &recorded) >= 2
-            && recorded > 0 && stat(elogFname, &activeSt) == 0
-            && recorded <= (long)activeSt.st_size) {
-            /* a previous rollback attempt died half way; cut its
-             * partial append off before appending the whole delta */
-            truncateTo = (off_t)recorded;
-        } else {
+        if ((recorded = deltaRecordedPoint(elogFname, &truncateTo)) < 0) {
+            saveErrno = errno;
+            chuser(batchId);
+            errno = saveErrno;
+            return -1;
+        }
+
+        if (!recorded) {
             if (trimToLastNewline(elogFname, &truncateTo) < 0
                 || deltaRecordBaselineEnd(truncateTo) < 0) {
                 saveErrno = errno;
@@ -3688,11 +3753,12 @@ switchLogRollForward(int expectDelta)
     static char fname[] = "switchLogRollForward";
     char        indexFile[MAXFILENAMELEN];
     struct stat st;
-    long        baselineEnd = -1;
     off_t       truncateTo = -1;
     off_t       copied = 0;
     int         totalEventFile;
     int         haveDelta;
+    int         haveZero;
+    int         recorded;
     int         saveErrno;
 
     chuser(managerId);
@@ -3701,7 +3767,17 @@ switchLogRollForward(int expectDelta)
      * Step 1: finish the archive rotation and rebuild the index; the
      * rotation is unfinished as long as the archive segment exists
      */
-    if (stat(event0Fname, &st) == 0) {
+    haveZero = (stat(event0Fname, &st) == 0);
+    if (!haveZero && errno != ENOENT) {
+        /* not knowing would publish without rotating: the archive
+         * segment of the old active file would be lost */
+        saveErrno = errno;
+        chuser(batchId);
+        errno = saveErrno;
+        return -1;
+    }
+
+    if (haveZero) {
 
         SWITCH_LOG(LOG_DEBUG, "\
 %s: finishing the archive rotation of an interrupted switch", fname);
@@ -3756,12 +3832,8 @@ switchLogRollForward(int expectDelta)
             return -1;
         }
 
-        /* a recorded point must lie within the baseline, else it is a
-         * damaged record, written before any byte was appended */
-        if (elogHeaderNumbers(deltaElogFname, NULL, &baselineEnd) >= 2
-            && baselineEnd > 0 && baselineEnd <= (long)tmpSt.st_size) {
-            truncateTo = (off_t)baselineEnd;
-        } else if (deltaRecordBaselineEnd(tmpSt.st_size) < 0) {
+        if ((recorded = deltaRecordedPoint(tmpElogFname, &truncateTo)) < 0
+            || (!recorded && deltaRecordBaselineEnd(tmpSt.st_size) < 0)) {
             saveErrno = errno;
             chuser(batchId);
             errno = saveErrno;
@@ -3968,10 +4040,23 @@ switchLogRecover(int expect)
         return 0;
     }
 
-    /* Step 3: READY means the baseline carries its header numbers */
-    chuser(managerId);
-    ready = haveTmp && (elogHeaderNumbers(tmpElogFname, &histPos, NULL) >= 1);
-    chuser(batchId);
+    /*
+     * Step 3: READY means the baseline carries its header numbers.  A
+     * baseline that cannot be read is not raw: taking it for raw would
+     * roll back a round whose archives may already be rotated.
+     */
+    ready = FALSE;
+    if (haveTmp) {
+        int cc;
+
+        chuser(managerId);
+        cc = elogHeaderNumbers(tmpElogFname, &histPos, NULL);
+        saveErrno = errno;
+        chuser(batchId);
+        if (cc == ELOG_HEADER_UNREADABLE)
+            goto unreadable_nochuser;
+        ready = (cc >= 1);
+    }
 
     /*
      * Step 4: compare what is there with what the caller expected.  The
@@ -4071,10 +4156,13 @@ switch is due", fname);
         return 0;
     }
 
-    /* READY but the delta is gone: someone removed it by hand */
+    /*
+     * READY but the delta is gone: only reachable when someone removed it
+     * by hand.  Note .0 only says the rotation is not finished, not that
+     * it has not started; nobody deletes files during a switch, so the
+     * round is simply dropped.
+     */
     if (haveZero) {
-        /* archives untouched, the old active file is complete: dropping
-         * the round loses nothing the missing delta has not lost already */
         if (switchLogDropRound() < 0) {
             saveErrno = errno;
             switchState = SWITCH_STALLED;
@@ -4574,6 +4662,13 @@ switchLogKillChild(void)
 %s: Stopping lsb.events switch process <%d>",
                __func__, (int)pid);
 
+    /*
+     * Wait without a limit, deliberately.  A child stuck in a hung NFS call
+     * only dies when that call returns, and could still rename an archive
+     * then; releasing the event log lock before that would let the next
+     * mbatchd recover the round under its feet.  While NFS hangs, the next
+     * mbatchd could not use the log directory anyway.
+     */
     kill(pid, SIGKILL);
     while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
         ;
@@ -4842,10 +4937,15 @@ renameElogFiles(void)
                 daemonParams[LSB_SHAREDIR].paramValue, ++i);
     } while (stat(tmpfn, &st) == 0);
 
+    /* a failed stat is not a gap: shifting into it would overwrite an
+     * existing archive */
     if (errno != ENOENT) {
+        int saveErrno = errno;
+
         chuser(batchId);
-        ls_syslog(LOG_WARNING, I18N_FUNC_S_FAIL_M, fname, "stat", tmpfn);
-        chuser(managerId);
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "stat", tmpfn);
+        errno = saveErrno;
+        return (-1);
     }
 
     max = i;
@@ -4860,9 +4960,12 @@ renameElogFiles(void)
                 daemonParams[LSB_SHAREDIR].paramValue, i + 1);
 
         if (rename(tmpfn, eventfn) == -1 && errno != ENOENT) {
+            int saveErrno = errno;
+
             chuser(batchId);
             ls_syslog(LOG_ERR, I18N_FUNC_S_S_FAIL_M, fname,
                       "rename", tmpfn, eventfn);
+            errno = saveErrno;
             return (-1);
         }
     }
