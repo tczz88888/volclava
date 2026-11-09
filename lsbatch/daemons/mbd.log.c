@@ -130,9 +130,11 @@ static char             jlogFname[MAXFILENAMELEN];
  *   - .0 exists                                 => rotation unfinished
  *   - no .tmp but a leftover .delta             => the publish succeeded
  *
- * The only fact that cannot be derived is the length of .tmp before the
- * delta was appended, which a retry has to truncate back to.  It is
- * recorded as a second number in the header of lsb.events.delta, a file
+ * The only fact that cannot be derived is the length the merge target had
+ * before the delta was appended, which a retry has to truncate back to:
+ * lsb.events.tmp when a READY round goes forward, lsb.events when a raw
+ * one is rolled back.  It is recorded as a second number in the header
+ * of lsb.events.delta, a file
  * that is never published and has no reader besides this code, so no
  * published event file changes format.  See switchLogRecover().
  */
@@ -4004,7 +4006,7 @@ switchLogReplayDelta(void)
  * child failed, and before a new round starts while a previous one is
  * stalled.  Every failure path elsewhere only reports its error and
  * keeps the scene; the classification lives here, derived entirely from
- * what is on disk (see the facts at the top of this section).
+ * what is on disk (see the four order facts at the top of this section).
  *
  *   .tmp   .delta  .0   meaning                       action
  *   -----  ------  ---  ----------------------------  ------------------
@@ -4013,13 +4015,15 @@ switchLogReplayDelta(void)
  *   READY  yes     any  baseline done                 roll forward
  *   -      yes     -    publish already succeeded     drop the delta
  *   raw    -       any  dead round, no events at risk drop the files
- *   READY  -       yes  delta lost, archives intact   drop the files
+ *   READY  -       yes  delta lost, rotation not done drop the files
  *   READY  -       -    delta lost, archives rotated  publish if same
  *                                                     generation, else
  *                                                     drop
  *   -      -       yes  synchronous switch died       drop the .0
  *
- * The two "delta lost" lines are the only ones needing an argument:
+ * A lost delta is only possible by hand, or after a power loss on a file
+ * system that does not keep the order of metadata updates.  The two
+ * "delta lost" lines are the only ones needing an argument:
  * without a delta the events of the switch window exist nowhere, and
  * since .tmp is only the compressed form of the old active file,
  * publishing and deleting it lose exactly the same records.  The choice
@@ -4351,10 +4355,10 @@ switch is skipped and the leftover is recovered on the next trigger",
      * leftover.
      */
     if ((fp = fopen(deltaElogFname, "w")) == NULL) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen",
-                  deltaElogFname);
         int saveErrno = errno;
 
+        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen",
+                  deltaElogFname);
         chuser(batchId);
         switchLogAbortPrepare();
         errno = saveErrno;
