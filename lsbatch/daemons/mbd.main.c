@@ -95,6 +95,7 @@ float  clsDecay = 1.0; /* cluster-wide decay factor for history of CPU time */
 int    detectIdleJobAfter = INFINIT_INT;
 int    eadminTriggerDuration = DEF_EADMIN_TRIGGER_DURATION;
 int    eadminTriggerInterval = DEF_EADMIN_TRIGGER_INTERVAL;
+int    minSwitchPeriod = 0;      /* MIN_SWITCH_PERIOD, seconds, 0 = no limit */
 
 int    numofqueues  = 0;
 int    numofprocs   = 0;

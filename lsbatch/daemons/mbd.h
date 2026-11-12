@@ -1013,6 +1013,7 @@ extern float                  clsDecay;
 extern int                    detectIdleJobAfter;
 extern int                    eadminTriggerDuration;
 extern int                    eadminTriggerInterval;
+extern int                    minSwitchPeriod;
 
 
 extern int                    numofqueues;

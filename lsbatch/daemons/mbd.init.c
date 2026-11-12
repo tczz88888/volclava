@@ -1963,6 +1963,7 @@ setParams(struct paramConf *paramConf)
     setValue(detectIdleJobAfter, params->detectIdleJobAfter);
     setValue(eadminTriggerDuration, params->eadminTriggerDuration);
     setValue(eadminTriggerInterval, params->eadminTriggerInterval);
+    setValue(minSwitchPeriod, params->minSwitchPeriod);
 }
 
 static void
@@ -2276,6 +2277,7 @@ setDefaultParams(void)
     detectIdleJobAfter = INFINIT_INT;
     eadminTriggerDuration = DEF_EADMIN_TRIGGER_DURATION;
     eadminTriggerInterval = DEF_EADMIN_TRIGGER_INTERVAL;
+    minSwitchPeriod = 0;
 }
 
 static void

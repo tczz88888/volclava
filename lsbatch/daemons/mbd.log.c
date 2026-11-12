@@ -211,6 +211,7 @@ static int              switchState = SWITCH_IDLE;  /* SWITCH_*, only changed by
 static time_t           switchStartTime;    /* frozen before the fork */
 static int              switchChildKillSent;  /* watchdog already killed this child */
 static int              switchLogStatErrno;   /* errno when the log directory could not be checked, 0 otherwise */
+static time_t           lastSwitchDoneTime;   /* when the last switch completed; startup counts as one */
 static pid_t            switchParentPid;      /* switch child only: pid of the mbatchd that forked it */
 
 /*
@@ -2657,6 +2658,9 @@ has not exited for over %d hours after being killed", __func__,
         }
     }
 
+    if (lastSwitchDoneTime == 0)
+        lastSwitchDoneTime = time(0);
+
     /* Step 3: nothing to do until MAX_JOB_NUM finished jobs were cleaned */
     if (numRemoveJobs < maxjobnum)
         return;
@@ -2668,6 +2672,18 @@ has not exited for over %d hours after being killed", __func__,
      */
     if (switchState == SWITCH_STALLED && mSchedStage != M_STAGE_REPLAY)
         switchLogRecover(RECOVER_EXPECT_ANY);
+
+    /*
+     * MIN_SWITCH_PERIOD: no new round until that long after the last one
+     * completed.  Many jobs expiring at once fill MAX_JOB_NUM again while
+     * a round runs, and since every round rewrites the whole lsb.events,
+     * a busy cluster would otherwise switch back to back.  The counter is
+     * left alone and keeps counting; a running round is simply waited for.
+     */
+    if (minSwitchPeriod > 0
+        && (switchState == SWITCH_CHILD_RUNNING
+            || time(0) - lastSwitchDoneTime < minSwitchPeriod))
+        return;
 
     /*
      * Step 5a: fork based switch.  It needs a fully initialized mbatchd;
@@ -2695,9 +2711,10 @@ has not exited for over %d hours after being killed", __func__,
     }
 
     /* Step 5b: synchronous switch, then reset or back off the counter */
-    if (switch_log() == 0)
+    if (switch_log() == 0) {
         numRemoveJobs = 0;
-    else
+        lastSwitchDoneTime = time(0);
+    } else
         numRemoveJobs = maxjobnum / 2;
 }
 
@@ -3714,8 +3731,9 @@ switchLogPublish(const char *fname)
                   deltaElogFname);
 
     chuser(batchId);
-    /* Step 4: the round is over */
+    /* Step 4: the round is over; MIN_SWITCH_PERIOD counts from here */
     switchState = SWITCH_IDLE;
+    lastSwitchDoneTime = time(0);
 
     /*
      * numRemoveJobs is deliberately not touched here: it was cleared

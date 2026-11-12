@@ -909,6 +909,39 @@ Undefined
 .PP
 .PP
 bsub, bmod, btop, bbot, JOB_PRIORITY_OVER_TIME
+.SH MIN_SWITCH_PERIOD
+.BR
+.PP
+.SS Syntax
+.BR
+.PP
+.PP
+\fBMIN_SWITCH_PERIOD\fR \fB=\fR \fIseconds
+\fR
+.SS Description
+.BR
+.PP
+.PP
+The minimum time in seconds between the completion of one event log
+switch and the start of the next one. A new lsb.events file is started
+only when both \fBMAX_JOB_NUM\fR finished jobs have been cleaned and at
+least \fBMIN_SWITCH_PERIOD\fR seconds have passed since the last switch
+completed. The time is counted from the start of mbatchd for the first
+switch.
+.PP
+Every switch rewrites the whole lsb.events file. When many jobs expire
+at once, \fBMAX_JOB_NUM\fR is reached again soon after each switch and
+mbatchd would switch back to back; set this parameter to space the
+switches out. A longer period lets lsb.events grow larger between
+switches, which makes mbatchd restart and each switch take longer.
+.PP
+The limit applies whether or not \fBLSB_FORK_ROTATE\fR is set. It does
+not delay the recovery of an interrupted switch.
+.SS Default
+.BR
+.PP
+.PP
+0 (no minimum period)
 .SH MBD_SLEEP_TIME
 .BR
 .PP

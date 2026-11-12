@@ -433,6 +433,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
         {"DETECT_IDLE_JOB_AFTER", NULL, 0}, /* 46 */
         {"EADMIN_TRIGGER_DURATION", NULL, 0},   /* 47 */
         {"EADMIN_TRIGGER_INTERVAL", NULL, 0},   /* 48 */
+        {"MIN_SWITCH_PERIOD", NULL, 0},         /* 49 */
         {NULL, NULL, 0}
     };
 
@@ -784,7 +785,7 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                 } else {
                     pConf->param->detectIdleJobAfter = value;
                 }
-            } else if (i == 47 || i == 48) {
+            } else if (i == 47 || i == 48 || i == 49) {
                 value = my_atoi(keylist[i].val, INFINIT_INT, -1);
                 if (value == INFINIT_INT) {
                     ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5067,
@@ -792,8 +793,10 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                     lsberrno = LSBE_CONF_WARNING;
                 } else if (i == 47) {
                     pConf->param->eadminTriggerDuration = value;
-                } else {
+                } else if (i == 48) {
                     pConf->param->eadminTriggerInterval = value;
+                } else {
+                    pConf->param->minSwitchPeriod = value;
                 }
             } else if (i > 5) {
                 if ( i < 23 || i > 36)
@@ -993,6 +996,7 @@ initParameterInfo(struct parameterInfo *param)
         param->detectIdleJobAfter = INFINIT_INT;
         param->eadminTriggerDuration = INFINIT_INT;
         param->eadminTriggerInterval = INFINIT_INT;
+        param->minSwitchPeriod = INFINIT_INT;
     }
 }
 
