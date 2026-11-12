@@ -3792,6 +3792,8 @@ switchLogRollForward(int expectDelta)
             return -1;
         }
 
+        chuser(managerId);
+
         sprintf(indexFile, "%s/logdir/%s",
                 daemonParams[LSB_SHAREDIR].paramValue,
                 LSF_JOBIDINDEX_FILENAME);
@@ -4468,6 +4470,16 @@ switchLogChildMain(void)
         switchChildFail(FALSE);
 
     /*
+     * The host and queue records above do not report their own failures,
+     * and a failed write into the stdio buffer is not reported again by
+     * the fflush() below.  The stream error flag catches any of them.
+     */
+    if (ferror(tmpfp)) {
+        SWITCH_LOG(LOG_DEBUG, "%s: writing %s failed", fname, tmpElogFname);
+        switchChildFail(FALSE);
+    }
+
+    /*
      * Step 5: make the baseline durable, then publish the history seek
      *    position.  Two barriers, not one: READY (digits in the header)
      *    is what recovery trusts, so every byte below the header must
@@ -4881,7 +4893,11 @@ createEvent0File (void)
     sprintf(event0File, "%s/logdir/lsb.events.0",
             daemonParams[LSB_SHAREDIR].paramValue);
 
-    stat(elogFname, &st);
+    if (stat(elogFname, &st) < 0) {
+        chuser(batchId);
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "stat", elogFname);
+        return (-1);
+    }
     size = st.st_size;
 
     if ((eventPtr = fopen(elogFname, "r")) == NULL) {
@@ -4902,6 +4918,19 @@ createEvent0File (void)
     fprintf(event0Ptr, "#%ld                       \n", time(0));
 
     if (fscanf(eventPtr, "%c%ld ", &ch, &pos) != 2 || ch != '#') {
+        /*
+         * A file without a numeric header is archived whole, as before;
+         * a header that could not be read is not "no header": copying
+         * from offset 0 would archive the baseline a second time.
+         */
+        if (ferror(eventPtr)) {
+            chuser(batchId);
+            ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fscanf", elogFname);
+            FCLOSEUP(&eventPtr);
+            FCLOSEUP(&event0Ptr);
+            unlink(event0File);
+            return (-1);
+        }
         pos = 0;
     }
 
@@ -4982,6 +5011,7 @@ renameElogFiles(void)
     static char fname[] = "renameElogFiles";
     int i;
     int max;
+    int total;
     char tmpfn[MAXFILENAMELEN], eventfn[MAXFILENAMELEN];
     struct stat st;
 
@@ -5007,6 +5037,22 @@ renameElogFiles(void)
     }
 
     max = i;
+
+    /*
+     * The first free number is not always the end of the archives: a
+     * rotation interrupted half way leaves its gap below the archives it
+     * had already shifted, and an archive removed by hand leaves one too.
+     * Those above keep their numbers but are part of the total that the
+     * index rebuild is given, or it would stop at the gap.  A stat error
+     * here only ends the count early, as before; the rotation is done.
+     */
+    for (total = max; ; total++) {
+        sprintf(tmpfn, "%s/logdir/lsb.events.%d",
+                daemonParams[LSB_SHAREDIR].paramValue, total + 1);
+        if (stat(tmpfn, &st) < 0)
+            break;
+    }
+
     while (i--) {
 
         /* switch child: never rename once mbatchd is gone */
@@ -5029,7 +5075,7 @@ renameElogFiles(void)
     }
     chuser(batchId);
 
-    return (max);
+    return (total);
 }
 
 void
