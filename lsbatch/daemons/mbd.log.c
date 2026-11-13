@@ -344,18 +344,11 @@ init_log(void)
     getElogLock();
 
     /*
-     * Recover a switch a previous mbatchd left unfinished.  This must
-     * run with the event log lock held (two masters must not recover in
-     * parallel) and strictly before the replay below and before the
-     * synchronous switch_log()/switchELog() at the end of init_log():
-     * replay only reads lsb.events, so delta events would silently be
-     * lost, and the synchronous switch truncates lsb.events.tmp and
-     * lsb.events.0 without a second look.
-     *
-     * If the log directory cannot even be checked, the files may hold a
-     * switch whose events must not be overwritten: do not start serving
-     * on top of an unknown state.  Retry a few times for a transient
-     * error, then exit; sbatchd starts mbatchd again later.
+     * Finish a switch a previous mbatchd left unfinished: with the event log
+     * lock held, before the replay (which only reads lsb.events) and before
+     * the synchronous switch below can overwrite its files.  If the log
+     * directory cannot even be checked, do not serve on an unknown state:
+     * retry a few times, then exit and let sbatchd restart mbatchd.
      */
     switchLogRecover(RECOVER_EXPECT_ANY);
     for (list = 0; switchLogStatErrno != 0 && list < 3; list++) {
@@ -2399,11 +2392,8 @@ putEventRec1(char *fname)
 }
 
 /*
- * Serialize one event record into an explicitly given stream.
- *
- * Unlike putEventRec()/putEventRec1() this neither selects the active
- * event file nor closes the stream afterwards, so the switch child can
- * use it to append records directly to lsb.events.tmp.
+ * Serialize one event record into the given stream; unlike putEventRec()
+ * it neither picks the active event file nor closes the stream.
  */
 static int
 putEventRecTo(FILE *fp, struct eventRec *rec, int type, time_t eventTime)
@@ -2582,18 +2572,10 @@ void
 switchELog (void)
 {
     /*
-     * Step 1: a child that cannot be reaped is a hung child (an NFS operation
-     * that never returns is the realistic cause).  Kill it so that the
-     * round stops blocking every further rotation; the SIGCHLD path
-     * then classifies the corpse and switchLogRecover() rolls the round
-     * forward or back.  Checked independently of numRemoveJobs, or a
-     * quiet cluster would never notice the hang.
-     */
-    /*
-     * Kill only once per child.  A child blocked in an uninterruptible
-     * NFS call (D state) keeps the SIGKILL pending until that call
-     * returns, which can take hours; re-sending it and logging an ERROR
-     * on every main loop iteration would only flood the log.
+     * Step 1: kill a hung child (typically a blocked NFS call), once: a child
+     * in D state keeps the SIGKILL pending, re-sending it only floods the log.
+     * The SIGCHLD path then recovers the round.  Checked regardless of
+     * numRemoveJobs, or a quiet cluster would never notice.
      */
     if (switchState == SWITCH_CHILD_RUNNING && switchChildPid > 0
         && !switchChildDone && !switchChildKillSent
@@ -2606,9 +2588,8 @@ switchELog (void)
     }
 
     /*
-     * Step 2: remind the administrator, once an hour, of a switch that
-     * stays unfinished - parked after a failure, or a killed child that
-     * does not exit.  Nothing else would report it again.
+     * Step 2: remind once an hour of a switch that stays unfinished (parked,
+     * or a killed child that does not exit)
      */
     {
         static time_t troubleSince = 0;
@@ -2643,40 +2624,29 @@ has not exited for over %d hours after being killed", __func__,
         return;
 
     /*
-     * Step 4: an unfinished round is completed before anything new
-     * starts, whichever way the next switch is done: LSB_FORK_ROTATE may
-     * have been turned off since the round was started.
+     * Step 4: finish an unfinished round first, whichever way the next switch
+     * is done (LSB_FORK_ROTATE may have changed since)
      */
     if (switchState == SWITCH_STALLED && mSchedStage != M_STAGE_REPLAY)
         switchLogRecover(RECOVER_EXPECT_ANY);
 
     /*
      * MIN_SWITCH_PERIOD: no new round until that long after the last one
-     * completed.  Many jobs expiring at once fill MAX_JOB_NUM again while
-     * a round runs, and since every round rewrites the whole lsb.events,
-     * a busy cluster would otherwise switch back to back.  The counter is
-     * left alone and keeps counting; a running round is simply waited for.
+     * completed, or many jobs expiring at once make a busy cluster rewrite
+     * lsb.events back to back.  The counter keeps counting meanwhile.
      */
     if (minSwitchPeriod > 0
         && (switchState == SWITCH_CHILD_RUNNING
             || time(0) - lastSwitchDoneTime < minSwitchPeriod))
         return;
 
-    /*
-     * Step 5a: fork based switch.  It needs a fully initialized mbatchd;
-     * during replay the switch is always done synchronously.
-     */
+    /* Step 5a: fork based switch; during replay it is always synchronous */
     if (lsbForkRotate && mSchedStage != M_STAGE_REPLAY) {
 
         if (forkSwitchLog() == 0) {
             /*
-             * This round has taken over the current backlog, so the
-             * counter restarts from here and then measures the jobs
-             * cleaned since this switch started, which is exactly the
-             * baseline the next switch has to be decided on.  Clearing
-             * it only when the new file is published would leave it
-             * above MAX_JOB_NUM for the whole child run and make every
-             * following periodicCheck() find the switch busy.
+             * restart the count now: the jobs cleaned while the child runs are
+             * what the next switch is decided on
              */
             numRemoveJobs = 0;
         } else {
@@ -2987,14 +2957,9 @@ switch_log(void)
     }
 
     /*
-     * Step 1b: refuse to run on top of an unfinished fork based round.
-     * The synchronous switch truncates lsb.events.tmp, rewrites
-     * lsb.events.0 and renames over lsb.events, so it must never run on
-     * top of an unfinished fork based round: the round's delta events
-     * would be orphaned and later discarded as a finished publish.  The
-     * guard lives here and not in switchELog() because init_log() calls
-     * switch_log() directly after a replay error, and that is exactly
-     * the moment a failed startup recovery leaves the round STALLED.
+     * Step 1b: never on top of an unfinished fork based round, whose files
+     * this would overwrite.  Checked here, not in switchELog(), because
+     * init_log() calls switch_log() directly after a replay error.
      */
     if (switchState != SWITCH_IDLE) {
         ls_syslog(LOG_ERR, "\
@@ -3141,23 +3106,16 @@ Fail to switch lsb.events; see mbatchd error log for details");
  */
 
 /*
- * Read the two leading numbers of an event file header.
- *
- * Every event file starts with a one line '#' comment.  A baseline file
- * carries the history seek position there once it is complete, and
- * lsb.events.delta carries the length lsb.events.tmp had before the
- * merge started (see deltaRecordBaselineEnd()).  Existing readers parse
- * the header with a single %d/%ld conversion and ignore anything behind
- * it, which is what makes the second number free.
+ * Read the two leading numbers of an event file header: the history seek
+ * position of a READY baseline, and the recorded merge point of the delta
+ * (see deltaRecordBaselineEnd()).  Existing readers only parse the first.
  *
  * @param[in] path: Event file to inspect.
  * @param[out] first: First header number, untouched if absent; may be NULL.
  * @param[out] second: Second header number, untouched if absent; may be NULL.
  * @return: count of numbers present (0, 1 or 2), -1 if the file does not
- *          start with '#' (an empty file included), ELOG_HEADER_UNREADABLE
- *          with errno set if it cannot be opened or read - which says
- *          nothing about its content and must not be taken as "raw" or
- *          "not recorded".
+ *          start with '#', ELOG_HEADER_UNREADABLE with errno set if it
+ *          cannot be opened or read - not to be taken as "raw".
  */
 static int
 elogHeaderNumbers(const char *path, long *first, long *second)
@@ -3195,21 +3153,10 @@ elogHeaderNumbers(const char *path, long *first, long *second)
 }
 
 /*
- * Record in the delta header the length its merge target had before the
- * merge started, so that an interrupted merge can be retried without
- * duplicating events.  The target is lsb.events.tmp on the forward path
- * and lsb.events on a rollback; the two meanings cannot clash, because
- * a round is only merged in one direction (READY baselines go forward,
- * raw ones are rolled back).
- *
- * The value describes the end of the target before the merge, not the
- * progress of the merge, so it stays valid for every retry of the same
- * round even while the delta file keeps growing.  It must be on disk
- * before the first byte is appended, otherwise recovery could find an
- * unmarked delta next to a half merged target and append it twice.
- *
- * lsb.events.delta is never published and has no reader besides this
- * file, so writing into its header changes no published file format.
+ * Record in the delta header the length the merge target (.tmp forward,
+ * lsb.events on a rollback) had before the merge, so that a retry cuts
+ * back to it instead of appending twice.  Must be on disk before the first
+ * byte is appended.
  *
  * @param[in] baselineEnd: Length of the merge target before the merge.
  * @return: 0 on success, -1 on failure.
@@ -3294,21 +3241,11 @@ deltaRecordedPoint(const char *target, off_t *point)
 }
 
 /*
- * Append the event records of lsb.events.delta to an event file.
- * Shared by the normal commit, by the rollback onto the old active file
- * and by the roll forward of a recovered round, so that the truncation,
- * the header skip and the half line repair exist exactly once.
- *
- * Only complete lines are copied: a crash or a full disk can leave the
- * delta file ending in half a record, and such a fragment must never
- * reach a file that keeps being appended to, or it would be glued to
- * the next record and destroy that one too.  The end of the last
- * complete record is found from the end of the file, then the records
- * are copied up to it.  A delta without even a complete header line
- * holds no record and is treated as empty.
- *
- * The caller must run in the main loop, where no event handler can grow
- * the delta file while it is read, and must already be the manager.
+ * Append the complete records of lsb.events.delta to an event file.  A
+ * half record at the end of the delta is left out, or it would be glued to
+ * the next record appended there; a delta without a complete header line
+ * counts as empty.  Run as the manager, from the main loop (nothing can
+ * grow the delta meanwhile).
  *
  * @param[in] dstPath: Event file to append to.
  * @param[in] truncateTo: Cut dstPath back to this length first; -1 to
@@ -3338,11 +3275,7 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
         return -1;
     }
 
-    /*
-     * Step 1: skip the delta header.  fgets() keeps the newline, so a line
-     * without one means the header itself was cut off and the file
-     * holds no complete record at all.
-     */
+    /* Step 1: skip the header; without its newline there is no record */
     if (fgets(buf, sizeof(buf), dfp) == NULL
         || strchr(buf, '\n') == NULL) {
         int readError = ferror(dfp);
@@ -3359,8 +3292,8 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
     }
 
     /*
-     * Step 2: the end of the last complete record, found from the end of
-     * the file; pread() leaves the stream behind the header untouched
+     * Step 2: where the last complete record ends (pread() does not move
+     * the stream)
      */
     pos = ftell(dfp);
     if (fstat(fileno(dfp), &st) < 0
@@ -3445,13 +3378,10 @@ append_failed:
 }
 
 /*
- * Remove the files of a round that is given up or whose events are
- * already safe in lsb.events, and route the events back to lsb.events.
- * lsb.events.tmp goes first: its removal is the commit point, because a
- * leftover lsb.events.delta or lsb.events.0 without it only reads as
- * cleanup work to recovery.  Until it is gone nothing else may change.
- * @return: 0 on success, -1 if lsb.events.tmp could not be removed, with
- *          errno set and the state left to the caller.
+ * Remove the files of a round and route events back to lsb.events.
+ * Removing .tmp is the commit point (without it, leftovers read as cleanup
+ * work); if it fails nothing else is changed and the round is parked.
+ * @return: 0 on success, -1 with errno set if .tmp could not be removed.
  */
 static int
 switchLogDropRound(void)
@@ -3507,11 +3437,8 @@ lastNewlineEnd(int fd, off_t size)
 }
 
 /*
- * Trim a file so that it ends right behind its last newline.  A power
- * loss can cut the page cache tail of a file that was never fsynced,
- * leaving half a record at the end; anything appended afterwards would
- * be glued to that fragment and destroy one more record.  Scanning runs
- * backwards in blocks, so only the tail of a large file is read.
+ * Cut half a record off the end of a file (an unsynced tail lost with the
+ * power), so that anything appended is not glued to it.
  *
  * @param[in] path: File to trim in place.
  * @param[out] size: Resulting file size; may be NULL.
@@ -3562,23 +3489,12 @@ trimToLastNewline(const char *path, off_t *size)
 }
 
 /*
- * Roll a round back onto the old active file.  Used when the baseline is
- * not complete, which by construction means no archive has been renamed
- * yet, so the only thing to rescue are the events logged to
- * lsb.events.delta while the child was running.
- *
- * The merge back must survive a crash in its own middle, exactly like
- * the forward merge: the length of lsb.events - trimmed first, its
- * unsynced tail may have died with the power - is recorded in the delta
- * header before the first append, and a retry truncates back to it.
- * The second header number cannot clash with the forward meaning: a
- * round is rolled back only while .tmp is raw, and the forward merge
- * only ever runs on a READY .tmp, so each round uses one meaning.
- * Removing the round's files afterwards is up to the caller
- * (switchLogDropRound()).
- *
- * @return: 0 on success, -1 with errno set if the delta events could not
- *          be saved, in which case nothing is deleted.
+ * Roll a raw round back: no archive was touched, so only the delta events
+ * have to go back to lsb.events.  Like the forward merge, the length of
+ * lsb.events (trimmed first) is recorded in the delta header before the
+ * append, and a retry cuts back to it.  Removing the files is up to the
+ * caller.
+ * @return: 0 on success, -1 with errno set, nothing deleted.
  */
 static int
 switchLogRollback(void)
@@ -3592,13 +3508,9 @@ switchLogRollback(void)
     chuser(managerId);
 
     /*
-     * Step 1: free the space of the half built archive segment first.  When
-     * the disk is full it is usually what filled it, and the merge back below
-     * needs room; without this the rollback would fail on every retry. Safe
-     * because the baseline is raw: no archive was renamed, so .0 is nothing
-     * but a rebuildable copy, and the round still classifies as a rollback
-     * without it.  .tmp must stay - without it a leftover delta would read as
-     * the remains of a finished publish.
+     * Step 1: drop the half built .0 first - on a full disk it is what fills
+     * it.  Safe while .tmp is raw: nothing was rotated.  .tmp must stay, or the
+     * delta would read as the leftover of a finished publish.
      */
     if (unlink(event0Fname) < 0 && errno != ENOENT)
         SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "unlink",
@@ -3615,9 +3527,8 @@ switchLogRollback(void)
     if (st.st_size > 0) {
 
         /*
-         * Step 2: find or record where lsb.events ended before the merge.
-         * A recorded point means a previous rollback attempt died half
-         * way; its partial append is cut off before appending again.
+         * Step 2: find (an earlier attempt died half way) or record where
+         * lsb.events ended before the merge
          */
         if ((recorded = deltaRecordedPoint(elogFname, &truncateTo)) < 0) {
             chuser(batchId);
@@ -3647,14 +3558,9 @@ switchLogRollback(void)
 }
 
 /*
- * Publish lsb.events.tmp as the new active event file and close the
- * round.  The rename is the single atomic commit point of a switch:
- * before it lsb.events is the complete old file, after it the complete
- * new one, so a crash can never leave a half valid active file.
- *
- * The write route must be back on lsb.events before the delta file is
- * unlinked; recovery relies on that order when it treats a leftover
- * delta without a .tmp as proof of a completed publish.
+ * Publish lsb.events.tmp as lsb.events and close the round.  The rename
+ * is the atomic commit point; the route must be back on lsb.events before
+ * the delta is unlinked, which recovery relies on.
  *
  * @param[in] fname: Caller name for the log lines.
  * @return: 0 on success, -1 on failure with the old active file intact.
@@ -3686,38 +3592,20 @@ switchLogPublish(const char *fname)
     switchState = SWITCH_IDLE;
     lastSwitchDoneTime = time(0);
 
-    /*
-     * numRemoveJobs is deliberately not touched here: it was cleared
-     * when this round was started and has been counting the jobs
-     * cleaned since then, which the next switch has to see.
-     */
+    /* numRemoveJobs stays: it counts the jobs cleaned since the round started */
     return 0;
 }
 
 /*
- * Finish a round whose baseline is complete: continue the archive
- * rotation if it stopped half way, merge the delta events and publish.
- * This is the normal commit path as well as the recovery one - a child
- * that exited cleanly simply arrives here with the rotation already
- * done, so the rename loop below is skipped.
- *
- * No recorded rotation progress is needed.  renameElogFiles() starts at
- * the first archive number that does not exist and renames downwards,
- * and an interrupted rotation leaves exactly one gap in .1...N plus the
- * still existing .0, so the scan resumes right at the gap.  An archive
- * an administrator removed by hand gives the same result as it would on
- * a normal round.
- *
- * Unlike the normal path, the rotation runs in the main process here: a
- * round that died at the start of the rotation can block the main loop
- * for the remaining renames.  Accepted - recovery is rare, and a slow
- * recovery is still better than the inconsistent archive set that
- * re-rotating from scratch would produce.
+ * Finish a READY round: complete an interrupted rotation, merge the delta
+ * and publish.  Also the normal commit path, with the rotation already
+ * done.  No progress record is needed: renameElogFiles() resumes at the
+ * gap the interrupted rotation left.  Here the remaining renames run in the
+ * main process, accepted for this rare path.
  *
  * @param[in] expectDelta: TRUE when the delta file is known to exist; a
  *                         missing one is then an error, not "no events".
- * @return: 0 on success, -1 with errno set on failure, every file left in
- *          place.
+ * @return: 0 on success, -1 with errno set, every file left in place.
  */
 static int
 switchLogRollForward(int expectDelta)
@@ -3735,8 +3623,8 @@ switchLogRollForward(int expectDelta)
     chuser(managerId);
 
     /*
-     * Step 1: finish the archive rotation and rebuild the index; the
-     * rotation is unfinished as long as the archive segment exists
+     * Step 1: an unfinished rotation (.0 exists) is completed, the index
+     * rebuilt
      */
     haveZero = (stat(event0Fname, &st) == 0);
     if (!haveZero && errno != ENOENT) {
@@ -3770,16 +3658,12 @@ switchLogRollForward(int expectDelta)
     }
 
     /*
-     * Step 2: merge the delta into .tmp.  Cut a possibly half merged delta
-     * off the baseline before appending the whole delta again.  Without the
-     * second header number no merge has started yet, so the current length of
-     * .tmp is the baseline end; record it now so that a crash inside this
-     * very merge can be retried the same way.
+     * Step 2: merge the delta into .tmp, cutting a half merged attempt off
+     * first, or recording the merge point before the first append
      */
     /*
-     * "No delta file" is only acceptable when the caller already knows it
-     * is gone; any other failure to look at it must keep the round, or
-     * its events would be published away.
+     * a missing delta is only fine when the caller knows it is gone; any
+     * other failure keeps the round, or its events would be published away
      */
     haveDelta = (stat(deltaElogFname, &st) == 0);
     if (!haveDelta && (errno != ENOENT || expectDelta)) {
@@ -3821,12 +3705,10 @@ switchLogRollForward(int expectDelta)
 }
 
 /*
- * Undo a failed rollback: cut lsb.events back to the length recorded in
- * the delta header, removing whatever part of the delta was appended.
- * A parked round keeps its events in lsb.events.delta only; otherwise a
- * restart would replay them twice, once from lsb.events and once from
- * the delta (switchLogReplayDelta()).  Safe because lsb.events is not
- * written while the round is parked: the route is on the delta.
+ * Undo a failed rollback: cut lsb.events back to the recorded length, so
+ * that a parked round has its events in the delta only and a restart does
+ * not replay them twice (switchLogReplayDelta()).  Safe: lsb.events is not
+ * written while the round is parked.
  */
 static void
 switchLogUndoRollback(void)
@@ -3870,21 +3752,10 @@ its events may be loaded twice after a restart", __func__);
 }
 
 /*
- * Park a round whose rollback or roll forward failed, so that it is
- * retried from switchELog().  Every event logged until then must go to
- * lsb.events.delta, whatever the route was before:
- *
- *   - on a later roll forward, lsb.events is replaced by the published
- *     baseline, so events written to it in the meantime would be lost;
- *   - on a later rollback, the delta is appended to lsb.events, so
- *     newer events already written there would end up in front of the
- *     older delta events and replay would see them out of order.
- *
- * While a child runs the route is on the delta anyway; this matters for
- * the startup entry point, where the route still points at lsb.events.
- * Only for a round known to exist: the unreadable-directory path does
- * not park through here, since creating a delta file there could later
- * be mistaken for the leftover of a finished publish.
+ * Park a round whose recovery failed; it is retried from switchELog().
+ * Events must go to the delta meanwhile - at startup the route still points
+ * at lsb.events, whose new events a later roll forward would lose and a
+ * later rollback would put in front of older delta events.
  */
 static void
 switchLogParkRound(void)
@@ -3894,19 +3765,11 @@ switchLogParkRound(void)
 }
 
 /*
- * Replay lsb.events.delta after lsb.events when the startup recovery of
- * an interrupted round failed (the round is parked, its files are still
- * there).  Without this the events logged while that round ran never
- * reach memory: their jobs would be missing until the next restart,
- * their job ids would be handed out again, and the next switch would
- * drop them from the baseline because they are not in core.
- *
- * Replaying lsb.events and then the delta gives the right state for both
- * ways the round can still end: a rollback appends exactly this delta to
- * lsb.events, and a roll forward publishes a baseline that is only the
- * compressed form of lsb.events followed by this delta.  Events logged
- * from now on go to the delta as well (switchLogParkRound()), so the
- * order stays the same whichever way the round is finished.
+ * Replay the delta after lsb.events when the startup recovery failed and
+ * the round is parked; otherwise its jobs would be missing, their ids
+ * handed out again and the next baseline would drop them.  Correct for
+ * both ways the round can still end: a rollback appends exactly this
+ * delta, a roll forward publishes lsb.events compressed plus this delta.
  */
 static void
 switchLogReplayDelta(void)
@@ -3956,15 +3819,10 @@ switchLogReplayDelta(void)
 }
 
 /*
- * Decide what an interrupted round left behind and finish or undo it.
- *
- * This is the single detection and recovery entry point.  It runs at
- * startup (after the event log lock is held and before replay or the
- * synchronous switch can touch the leftover files), after a switch
- * child failed, and before a new round starts while a previous one is
- * stalled.  Every failure path elsewhere only reports its error and
- * keeps the scene; the classification lives here, derived entirely from
- * what is on disk (see the four order facts at the top of this section).
+ * Decide what an interrupted round left behind and finish or undo it - the
+ * single recovery entry point, run at startup, after a switch child ended
+ * and before a new round while one is stalled.  The action follows from
+ * the files alone (see the order facts at the top of this section):
  *
  *   .tmp   .delta  .0   meaning                       action
  *   -----  ------  ---  ----------------------------  ------------------
@@ -3979,29 +3837,16 @@ switchLogReplayDelta(void)
  *                                                     drop
  *   -      -       yes  synchronous switch died       drop the .0
  *
- * A lost delta is only possible by hand, or after a power loss on a file
- * system that does not keep the order of metadata updates.  The two
- * "delta lost" lines are the only ones needing an argument:
- * without a delta the events of the switch window exist nowhere, and
- * since .tmp is only the compressed form of the old active file,
- * publishing and deleting it lose exactly the same records.  The choice
- * is made on archive consistency - once the rotation ran, publishing
- * avoids archiving the same history segment twice - and on generation
- * safety: the active file is frozen while a round runs, so a legitimate
- * baseline is never older than lsb.events; a .tmp with an older mtime
- * is a stale leftover and publishing it would turn the event log back
- * in time.
+ * A lost delta only happens by hand or after a power loss on a file system
+ * without ordered metadata; its events are gone either way, so the choice
+ * is made on archive consistency, and a .tmp older than lsb.events is a
+ * stale leftover that must not be published.  A stat() failing with
+ * anything but ENOENT leaves the round untouched until the next call.
  *
- * A stat() failing with anything but ENOENT means the log directory
- * cannot be trusted at this moment, not that a file is absent; the
- * round is then left untouched and judged again on the next call.
- *
- * @param[in] expect: RECOVER_EXPECT_* - what the caller believes it
- *                    should find.  Never changes the action, only the
- *                    severity of the report when the files disagree.
+ * @param[in] expect: RECOVER_EXPECT_* - only changes how loudly a mismatch
+ *                    is reported, never the action.
  * @return: 1 when a child that exited 0 left a complete round and it was
- *          published - the normal end of a switch, reported by the
- *          caller; 0 otherwise.
+ *          published (reported by the caller), 0 otherwise.
  */
 static int
 switchLogRecover(int expect)
@@ -4053,9 +3898,8 @@ switchLogRecover(int expect)
     }
 
     /*
-     * Step 3: READY means the baseline carries its header numbers.  A
-     * baseline that cannot be read is not raw: taking it for raw would
-     * roll back a round whose archives may already be rotated.
+     * Step 3: READY = numbers in the baseline header; an unreadable one is not
+     * raw (its archives may already be rotated)
      */
     ready = FALSE;
     if (haveTmp) {
@@ -4071,9 +3915,8 @@ switchLogRecover(int expect)
     }
 
     /*
-     * Step 4: compare what is there with what the caller expected.  The
-     * action below is chosen from the files alone; the expectation only
-     * decides what is reported.  A failed child has reported itself.
+     * Step 4: report a mismatch with the expectation; a failed child has
+     * reported itself
      */
     switch (expect) {
         case RECOVER_EXPECT_COMPLETE:
@@ -4097,16 +3940,11 @@ recovering", fname);
 %s: Found an interrupted lsb.events switch; recovering", fname);
     }
 
-    /*
-     * Step 5: act on the files, following the table in the function
-     * comment: no .tmp / raw .tmp / READY + delta / READY without delta
-     */
+    /* Step 5: act on the files, following the table above */
     if (!haveTmp) {
         /*
-         * .tmp is created before .delta and consumed by the rename that
-         * publishes it, so delta-without-tmp can only mean the publish
-         * succeeded and only the cleanup was lost; .0 alone is left by a
-         * synchronous switch that died before its rotation.
+         * a delta without .tmp: published, only the cleanup was lost; .0
+         * alone: a synchronous switch died before its rotation
          */
         chuser(managerId);
         if (haveDelta && unlink(deltaElogFname) < 0 && errno != ENOENT)
@@ -4130,10 +3968,9 @@ switch is due", fname);
 
     if (!ready) {
         /*
-         * No archive was touched yet.  The delta events go back to the old
-         * active file, then the round is dropped.  If either step fails,
-         * whatever was appended is cut off again before the round is
-         * parked, so that the delta events are never in both files.
+         * nothing rotated yet: the delta goes back to lsb.events and the round
+         * is dropped; on failure the append is undone before parking, so the
+         * delta events are never in both files
          */
         if ((haveDelta && switchLogRollback() < 0)
             || switchLogDropRound() < 0) {
@@ -4168,13 +4005,8 @@ switch is due", fname);
     }
 
     /*
-     * READY but the delta is gone: only reachable when someone removed it
-     * by hand, or after a power loss on a file system that does not keep
-     * the order of metadata updates (see the design limits: the log
-     * directory must be on a journaling file system or a sync exported
-     * NFS).  Note .0 only says the rotation is not finished, not that it
-     * has not started; neither case is expected, so the round is simply
-     * dropped.
+     * READY, delta gone (by hand or a power loss on unordered metadata):
+     * .0 only says the rotation is not finished, so the round is dropped
      */
     if (haveZero) {
         if (switchLogDropRound() < 0) {
@@ -4188,9 +4020,8 @@ switch is due", fname);
     }
 
     /*
-     * Archives already rotated.  Publish the baseline to avoid archiving
-     * the same history segment twice - but only if it belongs to the
-     * current active file; see the function comment.
+     * rotated already: publish, so the same history is not archived twice -
+     * unless the .tmp is older than lsb.events
      */
     chuser(managerId);
     if (stat(tmpElogFname, &tmpSt) < 0 || stat(elogFname, &activeSt) < 0) {
@@ -4241,11 +4072,8 @@ the next switch is due", fname);
 }
 
 /*
- * Create this round's files and freeze the switch start time.
- *
- * lsb.events.tmp is created with O_EXCL: its existence is what tells a
- * concurrent or later switch that the log directory is already owned by
- * a switch.  lsb.events.0 is created by the child in createEvent0File().
+ * Create this round's files and freeze the switch start time.  .tmp is
+ * created with O_EXCL, its existence marks the log directory as taken.
  * @return: 0 on success, -1 on failure with every created file removed.
  */
 static int
@@ -4262,12 +4090,8 @@ switchLogPrepare(void)
         chuser(batchId);
         if (errno == EEXIST) {
             /*
-             * A leftover nobody is recovering (state is IDLE, so neither
-             * the reaper nor the STALLED retry will look at it).  Park
-             * the round as STALLED: the next trigger runs
-             * switchLogRecover(), which classifies the file like any
-             * other leftover, instead of skipping every switch until
-             * mbatchd is restarted.
+             * a leftover nobody recovers: park it, so the next trigger runs
+             * switchLogRecover() instead of skipping every switch
              */
             switchState = SWITCH_STALLED;
             SWITCH_LOG(LOG_DEBUG, "\
@@ -4282,18 +4106,14 @@ switch is skipped and the leftover is recovered on the next trigger",
     close(fd);
 
     /*
-     * The mode given to open() is masked by the process umask, and
-     * mbatchd does not keep a stable umask: initSubmitReq() sets it to
-     * 0077 on the first bmod and never restores it.  Set the mode
-     * explicitly so the file published as lsb.events is 0644.
+     * open() is masked by the umask, which bmod sets to 0077 and never
+     * restores; the published lsb.events must be 0644
      */
     chmod(tmpElogFname, 0644);
 
     /*
-     * Step 2: create the delta file.  It is a regular event file:
-     * openEventFile() writes the usual header with the first event and
-     * existing readers skip it. Creating it with "w" also discards any stale
-     * leftover.
+     * Step 2: create the delta, a regular event file whose header
+     * openEventFile() writes; "w" also discards a stale leftover
      */
     if ((fp = fopen(deltaElogFname, "w")) == NULL) {
         int saveErrno = errno;
@@ -4316,10 +4136,8 @@ switch is skipped and the leftover is recovered on the next trigger",
 }
 
 /*
- * Switch child only: report that the switch failed and exit.  Called right
- * after the failing call; when that was a system call errno still holds
- * its reason (the DEBUG lines in between keep errno) and is reported,
- * otherwise errno is meaningless and left out.
+ * Switch child only: report the failure and exit.  errno is only reported
+ * for a failed system call, called right after it.
  * @param[in] sysError: TRUE if the failing step was a system call.
  */
 static void
@@ -4333,13 +4151,9 @@ switchChildFail(int sysError)
 }
 
 /*
- * Body of the switch child.  It owns the expensive part of the switch:
- * the full scan of the frozen active file, the construction of .0/.tmp,
- * the archive rotation and the index rebuild.  It never returns.
- *
- * Both .0 and .tmp are built exactly like the synchronous path builds
- * them; lsb.events cannot change while this runs, because the parent
- * writes every new event to lsb.events.delta.
+ * Body of the switch child: scan the frozen lsb.events, build .0 and .tmp
+ * exactly like the synchronous path, rotate the archives, rebuild the
+ * index.  lsb.events cannot change meanwhile, new events go to the delta.
  * @return: never returns; _exit()s with a SWITCH_CHILD_EXIT_* code.
  */
 static void
@@ -4386,18 +4200,12 @@ switchLogChildMain(void)
     }
     FCLOSEUP(&efp);
 
-    /*
-     * Step 3: the history seek position points right behind the baseline, so
-     *    the switch state records below and every delta event appended
-     *    later belong to the next archive segment.
-     */
+    /* Step 3: the history position is the end of the baseline */
     pos = ftell(tmpfp);
 
     /*
-     * Step 4: state of hosts, queues and of the switch itself.  The switch
-     *    record uses the time frozen before the fork and the nextJobId
-     *    of the fork time snapshot, so that it cannot carry a time later
-     *    than the delta events appended after it.
+     * Step 4: host, queue and switch records; LOG_SWITCH uses the time and
+     * job id frozen at the fork, never later than the delta events
      */
     writeHostCtrlEvent(tmpfp);
     writeQueueCtrlEvent(tmpfp);
@@ -4409,9 +4217,8 @@ switchLogChildMain(void)
         switchChildFail(FALSE);
 
     /*
-     * The host and queue records above do not report their own failures,
-     * and a failed write into the stdio buffer is not reported again by
-     * the fflush() below.  The stream error flag catches any of them.
+     * the host and queue records do not report write errors, and fflush()
+     * would not repeat them: check the stream
      */
     if (ferror(tmpfp)) {
         SWITCH_LOG(LOG_DEBUG, "%s: writing %s failed", fname, tmpElogFname);
@@ -4419,15 +4226,8 @@ switchLogChildMain(void)
     }
 
     /*
-     * Step 5: make the baseline durable, then publish the history seek
-     *    position.  Two barriers, not one: READY (digits in the header)
-     *    is what recovery trusts, so every byte below the header must
-     *    be on disk before the digits are.  With a single fsync a power
-     *    loss in its middle could persist the header page but lose the
-     *    tail, and a truncated baseline would be published as complete.
-     *    The flip itself is a small overwrite inside the already
-     *    allocated first block, so it cannot be half visible in a way
-     *    that matters: either the digits are there or they are not.
+     * Step 5: every byte of the baseline on disk before READY, which recovery
+     * trusts, then READY itself: two barriers
      */
     if (fflush(tmpfp) != 0 || fsync(fileno(tmpfp)) < 0) {
         SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpElogFname);
@@ -4455,12 +4255,7 @@ switchLogChildMain(void)
         switchChildFail(TRUE);
     }
 
-    /*
-     * Step 7: rebuild the archive job id index.  A failure here does not
-     *    invalidate the switch: updateJobIdIndexFile() rebuilds the
-     *    whole index as soon as the archive count no longer matches the
-     *    index, which the next switch does.
-     */
+    /* Step 7: the index; a failure only means the next switch rebuilds it */
     sprintf(indexFile, "%s/logdir/%s",
             daemonParams[LSB_SHAREDIR].paramValue, LSF_JOBIDINDEX_FILENAME);
 
@@ -4478,28 +4273,12 @@ switchLogChildMain(void)
 }
 
 /*
- * Switch child only: stop as soon as the mbatchd that forked this child
- * is gone, so that an orphan can never rotate archives in parallel with
- * the recovery of the next mbatchd (a volclava reconfig restarts
- * mbatchd, and the new one takes the event log lock immediately).
- *
- * PR_SET_PDEATHSIG alone is not enough: the kernel clears the
- * parent-death signal whenever the process changes its credentials,
- * and the child switches its effective uid all the time (chuser() for
- * file ownership, SWITCH_LOG() for the log file).  So this is called
- * before every step that modifies files - each phase of the child and
- * each archive rename - and does both: a getppid() check that catches
- * a parent that is already gone, and a fresh PR_SET_PDEATHSIG that kills
- * the child immediately if the parent dies before the next credential
- * change.  The getppid() check is the guarantee; the death signal only
- * shortens how long an orphan keeps running inside the current phase.
- * Both together cost about 0.3 us per call, nothing next to an NFS
- * rename.  SIGKILL, not SIGTERM: nothing may run, nothing may flush.
- * The fork must stay on the main thread - the death signal fires when
- * the forking thread exits.
- *
- * A no-op in mbatchd itself (switchParentPid is only set in the child),
- * so shared helpers such as renameElogFiles() can call it unconditionally.
+ * Switch child only: exit as soon as the mbatchd that forked it is gone, so
+ * that an orphan never rotates archives while the next mbatchd recovers.
+ * Called before every step that changes files and before each archive
+ * rename.  The getppid() check is the guarantee; PR_SET_PDEATHSIG, which
+ * the kernel clears on every chuser(), is re-armed to stop an orphan
+ * sooner.  The fork must stay on the main thread.  A no-op in mbatchd.
  */
 static void
 switchChildCheckParent(void)
@@ -4517,9 +4296,8 @@ switchChildCheckParent(void)
 }
 
 /*
- * Start one round of the fork based switch_log.
- * @return: 0 when a child was started, -1 when the previous round is
- *          not finished yet or this round could not be prepared.
+ * Start one round of the fork based switch.
+ * @return: 0 when a child was started, -1 otherwise.
  */
 static int
 forkSwitchLog(void)
@@ -4537,8 +4315,8 @@ forkSwitchLog(void)
     }
 
     /*
-     * Step 2: create .tmp and .delta.  A leftover .tmp parks the round
-     * instead (see switchLogPrepare()); that is reported by the recovery.
+     * Step 2: create .tmp and .delta; a leftover .tmp parks the round
+     * instead, reported by the recovery
      */
     if (switchLogPrepare() < 0) {
         if (switchState != SWITCH_STALLED)
@@ -4556,11 +4334,7 @@ is due", fname);
     switchChildPid = 0;
     switchChildDone = 0;
 
-    /*
-     * Step 4: from here on every new event goes to lsb.events.delta, which
-     * freezes lsb.events for the child.  The route is changed between
-     * two event handlers, so no event is ever written to both files.
-     */
+    /* Step 4: new events go to the delta, lsb.events is frozen for the child */
     elogWriteTarget = deltaElogFname;
 
     /* Step 5: fork; the child does the expensive part and never returns */
@@ -4573,13 +4347,8 @@ is due", fname);
         sigprocmask(SIG_SETMASK, &oldmask, NULL);
 
         /*
-         * The handler table is inherited across fork and this process
-         * is not mbatchd: terminate_handler() would exit() and flush
-         * the inherited stdio buffers into the event files, and
-         * child_handler() would poke at this file's result slots.  The
-         * default actions - plain death - are the right behaviour here;
-         * whatever is left behind is classified by switchLogRecover().
-         * SIGPIPE stays ignored, this process only writes plain files.
+         * not mbatchd: its handlers would exit() and flush inherited stdio into
+         * the event files; plain death is right, recovery handles the rest
          */
         Signal_(SIGTERM, SIG_DFL);
         Signal_(SIGINT,  SIG_DFL);
@@ -4604,10 +4373,7 @@ is due", fname);
         return -1;
     }
 
-    /*
-     * Step 6b: register the pid before SIGCHLD is unblocked, so that a child
-     * which exits immediately is still matched by the handler.
-     */
+    /* Step 6b: register the pid before SIGCHLD is unblocked */
     switchChildPid = pid;
     switchChildKillSent = FALSE;
     switchState = SWITCH_CHILD_RUNNING;
@@ -4621,9 +4387,8 @@ is due", fname);
 }
 
 /*
- * Called from the SIGCHLD handler for every reaped child.  It only saves
- * the wait status of the switch child and publishes switchChildDone
- * last; the status is decoded by the main loop.
+ * SIGCHLD handler: save the wait status of the switch child, set
+ * switchChildDone last; the main loop decodes it.
  * @param[in] pid: Pid waitpid() just reaped.
  * @param[in] status: Raw wait status belonging to that pid.
  */
@@ -4647,16 +4412,9 @@ switchLogChildRunning(void)
 }
 
 /*
- * Kill and reap the switch child on the way out of mbatchd.  Must be
- * called before die() releases the event log lock: a volclava reconfig
- * restarts mbatchd, the new instance takes the lock immediately, and an
- * orphaned child still renaming archives would race its recovery.
- * PR_SET_PDEATHSIG is only the backstop for an uncontrolled parent
- * death (SIGKILL); this is the controlled path.
- *
- * Safe in any state: switchChildPid is 0 unless a child was forked and
- * not yet consumed, and it is 0 inside the child itself, so a child
- * that ends up in mbdDie() cannot signal anyone else.
+ * Kill and reap the switch child when mbatchd exits, before die() releases
+ * the event log lock that the restarted mbatchd takes at once.  A no-op
+ * without a child, and inside the child itself.
  */
 void
 switchLogKillChild(void)
@@ -4671,11 +4429,8 @@ switchLogKillChild(void)
                __func__, (int)pid);
 
     /*
-     * Wait without a limit, deliberately.  A child stuck in a hung NFS call
-     * only dies when that call returns, and could still rename an archive
-     * then; releasing the event log lock before that would let the next
-     * mbatchd recover the round under its feet.  While NFS hangs, the next
-     * mbatchd could not use the log directory anyway.
+     * no time limit: a child in a hung NFS call could still rename an
+     * archive when it returns, and the next mbatchd would need NFS anyway
      */
     kill(pid, SIGKILL);
     while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
@@ -4683,19 +4438,10 @@ switchLogKillChild(void)
 }
 
 /*
- * Main loop side of the completion protocol: consume the status the
- * SIGCHLD handler saved and hand the round to switchLogRecover().
- *
- * The exit code is deliberately not trusted on its own.  A zero exit
- * only says what the child believed; what counts is what it left on
- * disk, and the same classification that handles a crashed child -
- * READY header, archive segment gone, delta present - also tells
- * whether a "successful" child really produced a publishable baseline.
- * A child that exited 0 with a raw .tmp (a logic error, a lost write)
- * would otherwise be published with a placeholder header, and the next
- * switch would archive the whole active file as history.  So a clean
- * exit and a failed one take the same path; the exit code only decides
- * the log level.
+ * Main loop: consume the status the SIGCHLD handler saved and hand the
+ * round to switchLogRecover().  Even an exit 0 is checked against the
+ * files: a raw baseline published as complete would be archived whole by
+ * the next switch.
  */
 void
 switchLogCheckChild(void)
@@ -4737,12 +4483,7 @@ switchLogCheckChild(void)
                        (int)pid, WIFEXITED(status) ? WEXITSTATUS(status) : -1);
     }
 
-    /*
-     * Step 3: the child is reaped, so the files are ours now.  Depending on
-     * how far the child came this publishes the round, rolls it back onto the
-     * old active file or drops it; if recovery itself fails the round is
-     * parked in SWITCH_STALLED and retried from switchELog().
-     */
+    /* Step 3: the files are ours: publish, roll back or drop the round */
     switchState = SWITCH_STALLED;
     if (switchLogRecover(expect) == 1)
         SWITCH_LOG(LOG_INFO, "%s: lsb.events switched", fname);
@@ -4885,15 +4626,8 @@ createEvent0File (void)
                 cc = size - nread;
 
             /*
-             * A short write is a failure: fwrite() only returning 0 let
-             * a full disk or an NFS error truncate the archive segment
-             * silently - and the switch would then publish and rotate a
-             * damaged archive as if nothing happened.  cc was already
-             * clipped to the captured size above, so anything less than
-             * cc means lost bytes.  On every failure below the partial
-             * copy is removed: it is never used, and on a full disk it
-             * would otherwise keep the space every later event write
-             * needs.
+             * a short write is a failure (cc is already clipped); the partial copy
+             * is removed, on a full disk it would hold space events need
              */
             if (fwrite(buf, 1, cc, event0Ptr) != (size_t)cc) {
                 chuser(batchId);
@@ -4918,11 +4652,8 @@ createEvent0File (void)
     FCLOSEUP(&eventPtr);
 
     /*
-     * The archive segment is renamed into the .1...N set right after
-     * this function; without an fsync a power loss could cut its tail
-     * off while the rename survives, leaving a silently truncated
-     * archive that no later check can tell from a complete one.  The
-     * buffered tail also only reaches the disk on a checked close.
+     * the segment is rotated right after: without fsync and a checked close a
+     * power loss could leave a silently truncated archive
      */
     if (fflush(event0Ptr) != 0 || fsync(fileno(event0Ptr)) < 0) {
         chuser(batchId);
@@ -4977,12 +4708,9 @@ renameElogFiles(void)
     max = i;
 
     /*
-     * The first free number is not always the end of the archives: a
-     * rotation interrupted half way leaves its gap below the archives it
-     * had already shifted, and an archive removed by hand leaves one too.
-     * Those above keep their numbers but are part of the total that the
-     * index rebuild is given, or it would stop at the gap.  A stat error
-     * here only ends the count early, as before; the rotation is done.
+     * the first free number may be a gap (interrupted rotation, archive
+     * removed by hand); the archives above it belong to the total that the
+     * index rebuild gets.  A stat error only ends the count early.
      */
     for (total = max; ; total++) {
         sprintf(tmpfn, "%s/logdir/lsb.events.%d",
@@ -6736,10 +6464,8 @@ saveHostCtrlEvent(struct hostCtrlLog *hostCtrlLog,
 }
 
 /*
- * Write the host status records kept for this switch.  With fp == NULL
- * the records go through the normal event write route; otherwise they
- * are serialized directly into fp (used by the switch child for
- * lsb.events.tmp).
+ * Write the host status records kept for this switch: through the event
+ * write route, or into fp (the switch child's lsb.events.tmp).
  */
 static void
 writeHostCtrlEvent(FILE *fp)
@@ -6921,8 +6647,8 @@ queueTableUpdate(hTab                 *tbPtr,
 /* writeQueueCtrlEvent()
  */
 /*
- * Write the queue status records kept for this switch.  See
- * writeHostCtrlEvent() for the meaning of fp.
+ * Write the queue status records kept for this switch; see
+ * writeHostCtrlEvent() for fp.
  */
 static void
 writeQueueCtrlEvent(FILE *fp)
