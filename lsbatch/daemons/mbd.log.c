@@ -100,20 +100,14 @@ static char             elogFname[MAXFILENAMELEN];
 static char             jlogFname[MAXFILENAMELEN];
 
 /*
- * LSB_FORK_ROTATE: switch_log() executed by a forked child process.
+ * LSB_FORK_ROTATE: the switch is done by a child process.  The parent
+ * routes new events to lsb.events.delta and forks; the child builds
+ * lsb.events.0 and the new baseline lsb.events.tmp, rotates the archives
+ * and rebuilds the index; the parent then appends the delta to .tmp and
+ * publishes it as lsb.events.
  *
- * The parent creates lsb.events.tmp and lsb.events.delta, routes new
- * events to lsb.events.delta and forks a switch child.  The child owns
- * the expensive part of the switch: scanning the now frozen lsb.events,
- * building the new baseline and lsb.events.0, rotating
- * .N -> .N+1 ... .0 -> .1 and rebuilding lsb.events.index.  The parent
- * keeps serving requests and, once the child is reaped, appends
- * lsb.events.delta to lsb.events.tmp and publishes it as lsb.events.
- *
- * Recovery never needs a transaction id, a state machine or an append
- * offset in the event files: the state of a round can be derived from
- * what is on disk, because the order in which the files are created and
- * removed is fixed.
+ * The state of an interrupted round is derived from the files alone,
+ * because their order is fixed:
  *
  *   1. lsb.events.tmp is always created before lsb.events.delta.
  *   2. lsb.events.0 is written before any lsb.events.tmp content and
@@ -130,13 +124,10 @@ static char             jlogFname[MAXFILENAMELEN];
  *   - .0 exists                                 => rotation unfinished
  *   - no .tmp but a leftover .delta             => the publish succeeded
  *
- * The only fact that cannot be derived is the length the merge target had
- * before the delta was appended, which a retry has to truncate back to:
- * lsb.events.tmp when a READY round goes forward, lsb.events when a raw
- * one is rolled back.  It is recorded as a second number in the header
- * of lsb.events.delta, a file
- * that is never published and has no reader besides this code, so no
- * published event file changes format.  See switchLogRecover().
+ * Only the length of the merge target before the delta was appended
+ * (.tmp going forward, lsb.events on a rollback) cannot be derived; it is
+ * the second number in the never published delta header.  See
+ * switchLogRecover().
  */
 
 /* exit codes of the switch child, internal convention only */
@@ -149,49 +140,35 @@ static char             jlogFname[MAXFILENAMELEN];
 #define SWITCH_STALLED                  2
 
 /*
- * What the caller of switchLogRecover() expects to find on disk.  The
- * classification and the action never depend on it - only the files
- * decide - but a mismatch between what a caller expects and what is
- * there is a signal in its own right (a child that exited 0 behind a
- * raw baseline is a bug or a lost write, not an interruption) and is
- * logged as such instead of being quietly repaired.
+ * What the caller of switchLogRecover() expects to find.  Only the files
+ * decide the action; a mismatch is just reported louder.
  */
 #define RECOVER_EXPECT_ANY              0   /* startup / retry: no expectation */
 #define RECOVER_EXPECT_COMPLETE         1   /* child exited 0: READY, no .0 */
 #define RECOVER_EXPECT_INTERRUPTED      2   /* child failed: anything partial */
 
-/*
- * A switch child that has not been reaped after this many seconds is
- * considered hung (a blocked NFS operation is the realistic cause) and
- * is killed, so that the round can be recovered instead of keeping the
- * delta file growing forever.  The limit is deliberately far above a
- * normal run: the largest event file seen on a volclava cluster is a few
- * hundred MB, and LSF switches a 2.2 GB file in about two minutes, so an
- * hour can only mean a hung child.
- */
+/* a switch child running longer than this, in seconds, is killed as
+ * hung (typically a blocked NFS call); a normal run takes minutes */
 #define SWITCH_CHILD_MAX_RUNTIME        3600
 
 /* how often an unfinished switch is reported again, in seconds */
 #define SWITCH_REMIND_INTERVAL          3600
 
 /*
- * ls_syslog() as the daemon user.  The switch code spends most of its
- * time as the LSF administrator (chuser(managerId)) so that the files it
- * creates are owned by that user, but the mbatchd log file is owned by
- * root and not writable by the administrator: a message logged in that
- * state silently ends up in the system syslog instead.  chuser() returns
- * the previous effective uid and preserves errno, so %m still reports
- * the error of the failed call.
+ * ls_syslog() as the daemon user: as the LSF administrator the root owned
+ * mbatchd log is not writable and messages would end up in syslog.
+ * errno is kept for %m and for the caller.
  */
 #define SWITCH_LOG(...)                                 \
     do {                                                \
+        int   switchLogErrno_ = errno;                  \
         uid_t switchLogSvUid_ = chuser(batchId);        \
         ls_syslog(__VA_ARGS__);                         \
         chuser(switchLogSvUid_);                        \
+        errno = switchLogErrno_;                        \
     } while (0)
 
-/* the placeholder header of a freshly built baseline file; it is
- * overwritten with the history seek position once the baseline is done */
+/* header of a baseline being built; replaced by the history position (READY) */
 #define ELOG_BASELINE_HEADER    "#                                     \n"
 
 /* elogHeaderNumbers(): the file could not be opened or read */
@@ -229,7 +206,6 @@ static void             switchLogReplayDelta(void);
 static void             switchChildCheckParent(void);
 static int              forkSwitchLog(void);
 static int              switchLogPrepare(void);
-static void             switchLogAbortPrepare(void);
 static void             switchLogChildMain(void);
 static void             switchChildFail(int);
 static int              elogHeaderNumbers(const char *, long *, long *);
@@ -237,6 +213,7 @@ static int              deltaRecordedPoint(const char *, off_t *);
 static void             switchLogUndoRollback(void);
 static int              deltaRecordBaselineEnd(off_t);
 static int              appendDeltaTo(const char *, off_t, off_t *);
+static off_t            lastNewlineEnd(int, off_t);
 static int              trimToLastNewline(const char *, off_t *);
 static int              switchLogDropRound(void);
 static int              switchLogRollback(void);
@@ -3325,10 +3302,10 @@ deltaRecordedPoint(const char *target, off_t *point)
  * Only complete lines are copied: a crash or a full disk can leave the
  * delta file ending in half a record, and such a fragment must never
  * reach a file that keeps being appended to, or it would be glued to
- * the next record and destroy that one too.  The file is read twice:
- * one pass to find the end of the last complete record, one pass to
- * copy up to it.  A delta without even a complete header line holds no
- * record and is treated as empty.
+ * the next record and destroy that one too.  The end of the last
+ * complete record is found from the end of the file, then the records
+ * are copied up to it.  A delta without even a complete header line
+ * holds no record and is treated as empty.
  *
  * The caller must run in the main loop, where no event handler can grow
  * the delta file while it is read, and must already be the manager.
@@ -3346,8 +3323,9 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
     FILE       *dfp = NULL;
     FILE       *dstfp = NULL;
     char        buf[MSGSIZE];
+    struct stat st;
     off_t       total = 0;
-    off_t       recordsEnd = -1;
+    off_t       recordsEnd;
     off_t       pos;
     size_t      cc;
 
@@ -3380,43 +3358,26 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
         return 0;
     }
 
-    /* Step 2 (pass one): find the end of the last complete record.  memrchr()
-     * is a GNU extension, so scan the block backwards by hand. */
+    /*
+     * Step 2: the end of the last complete record, found from the end of
+     * the file; pread() leaves the stream behind the header untouched
+     */
     pos = ftell(dfp);
-    while ((cc = fread(buf, 1, sizeof(buf), dfp)) > 0) {
-        size_t i;
-
-        for (i = cc; i > 0; i--) {
-            if (buf[i - 1] == '\n') {
-                recordsEnd = pos + (off_t)i;
-                break;
-            }
-        }
-        pos += cc;
-    }
-
-    if (ferror(dfp)) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fread",
+    if (fstat(fileno(dfp), &st) < 0
+        || (recordsEnd = lastNewlineEnd(fileno(dfp), st.st_size)) < 0) {
+        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "pread",
                   deltaElogFname);
         FCLOSEUP(&dfp);
         return -1;
     }
 
-    /* records only below the header: nothing to merge */
-    if (recordsEnd < 0) {
+    /* no complete record behind the header: nothing to merge */
+    if (recordsEnd <= pos) {
         FCLOSEUP(&dfp);
         return 0;
     }
 
     /* Step 3: prepare the target - cut it back if asked, seek to its end */
-    rewind(dfp);
-    if (fgets(buf, sizeof(buf), dfp) == NULL) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fgets",
-                  deltaElogFname);
-        FCLOSEUP(&dfp);
-        return -1;
-    }
-
     if ((dstfp = fopen(dstPath, "r+")) == NULL) {
         SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen", dstPath);
         FCLOSEUP(&dfp);
@@ -3434,8 +3395,7 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
         goto append_failed;
     }
 
-    /* Step 4 (pass two): plain byte copy up to the last complete record */
-    pos = ftell(dfp);
+    /* Step 4: plain byte copy up to the last complete record */
     while (pos < recordsEnd) {
         size_t want = sizeof(buf);
 
@@ -3496,17 +3456,15 @@ append_failed:
 static int
 switchLogDropRound(void)
 {
-    int saveErrno;
 
     chuser(managerId);
 
     /* Step 1: the commit point */
     if (unlink(tmpElogFname) < 0 && errno != ENOENT) {
-        saveErrno = errno;
         chuser(batchId);
-        errno = saveErrno;
         SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, __func__, "unlink",
                    tmpElogFname);
+        switchState = SWITCH_STALLED;
         return -1;
     }
 
@@ -3518,6 +3476,33 @@ switchLogDropRound(void)
     /* Step 3: back to normal operation */
     elogWriteTarget = elogFname;
     switchState = SWITCH_IDLE;
+    return 0;
+}
+
+/*
+ * Find where the last complete line of a file ends, scanning backwards
+ * in blocks so that only the tail of a large file is read.
+ * @param[in] fd: File to scan; its offset is not moved.
+ * @param[in] size: Length of the file.
+ * @return: offset right behind the last newline, 0 if there is none,
+ *          -1 with errno set on a read error.
+ */
+static off_t
+lastNewlineEnd(int fd, off_t size)
+{
+    char  buf[MSGSIZE];
+    off_t end;
+
+    for (end = size; end > 0; end -= (off_t)sizeof(buf)) {
+        size_t  want = (off_t)sizeof(buf) > end ? (size_t)end : sizeof(buf);
+        size_t  i;
+
+        if (pread(fd, buf, want, end - (off_t)want) != (ssize_t)want)
+            return -1;
+        for (i = want; i > 0; i--)
+            if (buf[i - 1] == '\n')
+                return end - (off_t)want + (off_t)i;
+    }
     return 0;
 }
 
@@ -3536,7 +3521,6 @@ static int
 trimToLastNewline(const char *path, off_t *size)
 {
     static char fname[] = "trimToLastNewline";
-    char        buf[MSGSIZE];
     struct stat st;
     off_t       end;
     int         fd;
@@ -3552,31 +3536,10 @@ trimToLastNewline(const char *path, off_t *size)
         return -1;
     }
 
-    for (end = st.st_size; end > 0;) {
-        size_t want = sizeof(buf);
-        ssize_t cc;
-        size_t  i;
-
-        if ((off_t)want > end)
-            want = (size_t)end;
-
-        cc = pread(fd, buf, want, end - (off_t)want);
-        if (cc != (ssize_t)want) {
-            SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "pread", path);
-            close(fd);
-            return -1;
-        }
-
-        for (i = want; i > 0; i--) {
-            if (buf[i - 1] == '\n')
-                break;
-        }
-
-        if (i > 0) {
-            end = end - (off_t)want + (off_t)i;
-            break;
-        }
-        end -= (off_t)want;
+    if ((end = lastNewlineEnd(fd, st.st_size)) < 0) {
+        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "pread", path);
+        close(fd);
+        return -1;
     }
 
     if (end != st.st_size) {
@@ -3623,7 +3586,6 @@ switchLogRollback(void)
     static char fname[] = "switchLogRollback";
     struct stat st;
     int         recorded;
-    int         saveErrno;
     off_t       truncateTo = -1;
     off_t       copied = 0;
 
@@ -3644,9 +3606,7 @@ switchLogRollback(void)
 
     /* a round is only rolled back with its delta file present */
     if (stat(deltaElogFname, &st) < 0) {
-        saveErrno = errno;
         chuser(batchId);
-        errno = saveErrno;
         SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "stat",
                    deltaElogFname);
         return -1;
@@ -3660,27 +3620,21 @@ switchLogRollback(void)
          * way; its partial append is cut off before appending again.
          */
         if ((recorded = deltaRecordedPoint(elogFname, &truncateTo)) < 0) {
-            saveErrno = errno;
             chuser(batchId);
-            errno = saveErrno;
             return -1;
         }
 
         if (!recorded) {
             if (trimToLastNewline(elogFname, &truncateTo) < 0
                 || deltaRecordBaselineEnd(truncateTo) < 0) {
-                saveErrno = errno;
                 chuser(batchId);
-                errno = saveErrno;
                 return -1;
             }
         }
 
         /* Step 3: cut back to that point and append the whole delta */
         if (appendDeltaTo(elogFname, truncateTo, &copied) < 0) {
-            saveErrno = errno;
             chuser(batchId);
-            errno = saveErrno;
             return -1;
         }
     }
@@ -3712,10 +3666,7 @@ switchLogPublish(const char *fname)
     chuser(managerId);
 
     if (rename(tmpElogFname, elogFname) < 0) {
-        int saveErrno = errno;
-
         chuser(batchId);
-        errno = saveErrno;
         SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_S_FAIL_M, fname, "rename",
                   tmpElogFname, elogFname);
         return -1;
@@ -3780,7 +3731,6 @@ switchLogRollForward(int expectDelta)
     int         haveDelta;
     int         haveZero;
     int         recorded;
-    int         saveErrno;
 
     chuser(managerId);
 
@@ -3792,9 +3742,7 @@ switchLogRollForward(int expectDelta)
     if (!haveZero && errno != ENOENT) {
         /* not knowing would publish without rotating: the archive
          * segment of the old active file would be lost */
-        saveErrno = errno;
         chuser(batchId);
-        errno = saveErrno;
         return -1;
     }
 
@@ -3804,9 +3752,7 @@ switchLogRollForward(int expectDelta)
 %s: finishing the archive rotation of an interrupted switch", fname);
 
         if ((totalEventFile = renameElogFiles()) <= 0) {
-            saveErrno = errno;
             chuser(batchId);
-            errno = saveErrno;
             return -1;
         }
 
@@ -3837,9 +3783,7 @@ switchLogRollForward(int expectDelta)
      */
     haveDelta = (stat(deltaElogFname, &st) == 0);
     if (!haveDelta && (errno != ENOENT || expectDelta)) {
-        saveErrno = errno;
         chuser(batchId);
-        errno = saveErrno;
         SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "stat",
                    deltaElogFname);
         return -1;
@@ -3849,24 +3793,18 @@ switchLogRollForward(int expectDelta)
         struct stat tmpSt;
 
         if (stat(tmpElogFname, &tmpSt) < 0) {
-            saveErrno = errno;
             chuser(batchId);
-            errno = saveErrno;
             return -1;
         }
 
         if ((recorded = deltaRecordedPoint(tmpElogFname, &truncateTo)) < 0
             || (!recorded && deltaRecordBaselineEnd(tmpSt.st_size) < 0)) {
-            saveErrno = errno;
             chuser(batchId);
-            errno = saveErrno;
             return -1;
         }
 
         if (appendDeltaTo(tmpElogFname, truncateTo, &copied) < 0) {
-            saveErrno = errno;
             chuser(batchId);
-            errno = saveErrno;
             return -1;
         }
     }
@@ -4203,8 +4141,6 @@ switch is due", fname);
             if (haveDelta) {
                 switchLogUndoRollback();
                 switchLogParkRound();
-            } else {
-                switchState = SWITCH_STALLED;
             }
             goto failed;
         }
@@ -4243,7 +4179,6 @@ switch is due", fname);
     if (haveZero) {
         if (switchLogDropRound() < 0) {
             saveErrno = errno;
-            switchState = SWITCH_STALLED;
             goto failed;
         }
 
@@ -4279,7 +4214,6 @@ switch is due", fname);
 
     if (switchLogDropRound() < 0) {
         saveErrno = errno;
-        switchState = SWITCH_STALLED;
         goto failed;
     }
 
@@ -4304,19 +4238,6 @@ unreadable_nochuser:
 %s: Fail to check the interrupted lsb.events switch: %m; retried when \
 the next switch is due", fname);
     return 0;
-}
-
-/* Drop everything this round has created.  Used when the preparation or
- * the fork itself fails, before any event has been written to the delta
- * file, so nothing can be lost here.
- */
-static void
-switchLogAbortPrepare(void)
-{
-    chuser(managerId);
-    unlink(deltaElogFname);
-    unlink(tmpElogFname);
-    chuser(batchId);
 }
 
 /*
@@ -4380,7 +4301,7 @@ switch is skipped and the leftover is recovered on the next trigger",
         SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen",
                   deltaElogFname);
         chuser(batchId);
-        switchLogAbortPrepare();
+        switchLogDropRound();
         errno = saveErrno;
         return -1;
     }
@@ -4674,9 +4595,8 @@ is due", fname);
         /* the cleanup below clobbers errno; %m must report the fork */
         int forkErrno = errno;
 
-        elogWriteTarget = elogFname;
         sigprocmask(SIG_SETMASK, &oldmask, NULL);
-        switchLogAbortPrepare();
+        switchLogDropRound();
         errno = forkErrno;
         SWITCH_LOG(LOG_ERR, "\
 %s: Fail to start the lsb.events switch: %m; retried when the next switch \
