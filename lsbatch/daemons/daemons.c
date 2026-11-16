@@ -97,7 +97,6 @@ struct config_param daemonParams[] = {
     {"LSB_QMBD_THREAD_NUM", NULL},
     {"LSB_QMBD_JOB_SYNC_MODE", NULL},
     {"LSB_QMBD_SYNC_SHM_SIZE", NULL},
-    {"LSB_FORK_ROTATE", NULL},
     {NULL, NULL}
 };
 

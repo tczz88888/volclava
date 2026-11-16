@@ -1003,7 +1003,6 @@ extern int                    maxAcctArchiveNum;
 extern int                    acctArchiveInDays;
 extern int                    acctArchiveInSize;
 extern int                    resourcePerTask;
-extern int                    lsbForkRotate;
 extern int                    lsbModifyAllJobs;
 extern float                  cpuTimeFactor;
 extern float                  runTimeFactor;

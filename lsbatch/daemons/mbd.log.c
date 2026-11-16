@@ -100,7 +100,7 @@ static char             elogFname[MAXFILENAMELEN];
 static char             jlogFname[MAXFILENAMELEN];
 
 /*
- * LSB_FORK_ROTATE: the switch is done by a child process.  The parent
+ * The event log switch is done by a child process.  The parent
  * routes new events to lsb.events.delta and forks; the child builds
  * lsb.events.0 and the new baseline lsb.events.tmp, rotates the archives
  * and rebuilds the index; the parent then appends the delta to .tmp and
@@ -477,10 +477,17 @@ init_log(void)
 
     TIMEIT(0, recoverShareAccts(), "init_log/rscoverShareAccts()");
 
+    /*
+     * Records lsb.events cannot replay are rewritten away right now,
+     * before any new event is appended to a cut off last line; the
+     * cleaned jobs counted by the replay are consumed by this switch.
+     */
     if (!first) {
 
         if (switch_log() == -1)
             ConfigError = -1;
+        else
+            numRemoveJobs = 0;
     }
 
     switchELog();
@@ -2623,10 +2630,7 @@ has not exited for over %d hours after being killed", __func__,
     if (numRemoveJobs < maxjobnum)
         return;
 
-    /*
-     * Step 4: finish an unfinished round first, whichever way the next switch
-     * is done (LSB_FORK_ROTATE may have changed since)
-     */
+    /* Step 4: finish an unfinished round first */
     if (switchState == SWITCH_STALLED && mSchedStage != M_STAGE_REPLAY)
         switchLogRecover(RECOVER_EXPECT_ANY);
 
@@ -2640,29 +2644,25 @@ has not exited for over %d hours after being killed", __func__,
             || time(0) - lastSwitchDoneTime < minSwitchPeriod))
         return;
 
-    /* Step 5a: fork based switch; during replay it is always synchronous */
-    if (lsbForkRotate && mSchedStage != M_STAGE_REPLAY) {
-
-        if (forkSwitchLog() == 0) {
-            /*
-             * restart the count now: the jobs cleaned while the child runs are
-             * what the next switch is decided on
-             */
-            numRemoveJobs = 0;
-        } else {
-            /* busy or not startable: back off instead of re-checking on
-             * every periodicCheck() */
-            numRemoveJobs = numRemoveJobs / 2;
-        }
+    /*
+     * Step 5: the switch is always done by a child.  During the startup
+     * replay no child can be forked yet: the count is kept and the first
+     * periodicCheck() starts the round.
+     */
+    if (mSchedStage == M_STAGE_REPLAY)
         return;
-    }
 
-    /* Step 5b: synchronous switch, then reset or back off the counter */
-    if (switch_log() == 0) {
+    if (forkSwitchLog() == 0) {
+        /*
+         * restart the count now: the jobs cleaned while the child runs are
+         * what the next switch is decided on
+         */
         numRemoveJobs = 0;
-        lastSwitchDoneTime = time(0);
-    } else
-        numRemoveJobs = maxjobnum / 2;
+    } else {
+        /* busy or not startable: back off instead of re-checking on
+         * every periodicCheck() */
+        numRemoveJobs = numRemoveJobs / 2;
+    }
 }
 
 void
@@ -3101,7 +3101,7 @@ Fail to switch lsb.events; see mbatchd error log for details");
 
 /*
  * ======================================================================
- * LSB_FORK_ROTATE implementation
+ * Event log switch in a child process
  * ======================================================================
  */
 

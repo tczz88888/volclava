@@ -799,6 +799,26 @@ Once the limit is reached, MBD starts a new event log file. The old
 event log file is saved as lsb.events.\fIn\fR, with subsequent sequence 
 number suffixes incremented by 1 each time a new log file is started. 
 Event logging continues in the new lsb.events file.
+.PP
+The switch is done by a child process of mbatchd, which keeps serving
+requests meanwhile: mbatchd creates lsb.events.tmp and lsb.events.delta,
+logs new events to lsb.events.delta and forks the child. The child builds
+the archive segment lsb.events.0 and the new event file, rotates
+lsb.events.\fIn\fR and rebuilds lsb.events.index. mbatchd then appends
+lsb.events.delta to lsb.events.tmp and publishes it as the new lsb.events.
+While a switch is still running no new one is started, and the counter
+of cleaned finished jobs is halved.
+.PP
+A switch interrupted by a failure of the child or by a stop of mbatchd is
+recovered automatically from the files left on disk, when the failure is
+detected, before the next switch and at mbatchd startup: an incomplete
+new event file is rolled back (the events of lsb.events.delta go back to
+lsb.events), a complete one is rolled forward and published. A recovery
+that fails, for example on a full disk, is retried on the next switch
+while new events keep going to lsb.events.delta. mbatchd only switches
+the event log itself at startup, when lsb.events contains records it
+cannot replay; a switch due at startup is otherwise started right after
+the startup.
 .SS Default
 .BR
 .PP
@@ -935,8 +955,7 @@ mbatchd would switch back to back; set this parameter to space the
 switches out. A longer period lets lsb.events grow larger between
 switches, which makes mbatchd restart and each switch take longer.
 .PP
-The limit applies whether or not \fBLSB_FORK_ROTATE\fR is set. It does
-not delay the recovery of an interrupted switch.
+It does not delay the recovery of an interrupted switch.
 .SS Default
 .BR
 .PP

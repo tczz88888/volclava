@@ -1353,61 +1353,6 @@ LSB_REQUEUE_TO_BOTTOM is also defined.
 .PP
 .PP
 LSB_REQUEUE_TO_BOTTOM
-.SH LSB_FORK_ROTATE
-.BR
-.PP
-.SS Syntax
-.BR
-.PP
-.PP
-\fBLSB_FORK_ROTATE=Y\fR | \fBN
-\fR
-.SS Description
-.BR
-.PP
-.PP
-Controls whether the event log switch triggered by \fBMAX_JOB_NUM\fR in
-lsb.params is executed by a child process of mbatchd.
-.PP
-When set to N, mbatchd performs the whole switch synchronously and cannot
-serve requests while the event file is scanned, the archive segment is
-extracted and the archive files are rotated.
-.PP
-When set to Y, and the number of cleaned finished jobs has reached
-\fBMAX_JOB_NUM\fR while the previous switch has completed, mbatchd creates
-lsb.events.tmp and lsb.events.delta, moves the event logging to
-lsb.events.delta and forks a child process. The child builds the archive
-segment lsb.events.0 and the new event file, rotates lsb.events.\fIN\fR and rebuilds
-lsb.events.index, while mbatchd keeps serving requests. When the child
-finishes, mbatchd appends lsb.events.delta to lsb.events.tmp, publishes it
-as the new lsb.events and removes lsb.events.delta.
-.PP
-If the previous switch has not completed yet, no child is started and the
-counter of cleaned finished jobs is halved, so that the switch is
-re-evaluated only after \fBMAX_JOB_NUM\fR is reached again.
-.PP
-If a switch child fails, is killed or mbatchd stops while a switch is in
-flight, the round is recovered automatically from what is left on disk.
-An incomplete new event file is rolled back: the events collected in
-lsb.events.delta are appended to the untouched lsb.events and the
-temporary files are removed. A completed new event file is rolled
-forward: an interrupted archive rotation is finished, the delta events
-are merged and the new file is published. Recovery runs when the failure
-is detected, before the next switch is started and at mbatchd startup;
-a recovery that fails, for example on a full disk, is retried on the
-next switch trigger while new events keep going to lsb.events.delta.
-Only a leftover lsb.events.tmp whose delta file was removed by hand may
-lose the events of that switch window; mbatchd then logs what was
-dropped. On exit mbatchd kills a running switch child, and on Linux the
-child dies with its parent, so a restarted mbatchd never competes with
-an orphaned child.
-.PP
-Use \fBbadmin showconf mbd\fR to display the value in effect.
-.SS Default
-.BR
-.PP
-.PP
-N
 .SH LSB_MOD_ALL_JOBS
 .BR
 .PP
