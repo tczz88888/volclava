@@ -4502,7 +4502,11 @@ createAcct0File(void)
     sprintf(acct0File, "%s/logdir/lsb.acct.0",
             daemonParams[LSB_SHAREDIR].paramValue);
 
-    stat(jlogFname, &st);
+    if (stat(jlogFname, &st) < 0) {
+        chuser(batchId);
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "stat", jlogFname);
+        return (-1);
+    }
     size = st.st_size;
 
     if ((acctPtr = fopen(jlogFname, "r")) == NULL) {
@@ -4535,9 +4539,7 @@ createAcct0File(void)
             if (fwrite(buf, 1, cc, acct0Ptr) != (size_t)cc) {
                 chuser(batchId);
                 ls_syslog(LOG_ERR, I18N_FUNC_FAIL_M, fname, "fwrite");
-                FCLOSEUP(&acctPtr);
-                FCLOSEUP(&acct0Ptr);
-                return (-1);
+                goto acct0_failed;
             }
             nread += cc;
         } else if (feof(acctPtr)){
@@ -4545,14 +4547,35 @@ createAcct0File(void)
         } else {
             chuser(batchId);
             ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fread", jlogFname);
-            FCLOSEUP(&acctPtr);
-            FCLOSEUP(&acct0Ptr);
-            return (-1);
+            goto acct0_failed;
         }
     }
     FCLOSEUP(&acctPtr);
-    FCLOSEUP(&acct0Ptr);
+
+    /*
+     * lsb.acct is removed and .0 rotated to .1 right after this: the copy
+     * must be on disk and complete, or a power loss would leave a cut off
+     * archive and no lsb.acct to recover it from.
+     */
+    if (fflush(acct0Ptr) != 0 || fsync(fileno(acct0Ptr)) < 0
+        || FCLOSEUP(&acct0Ptr) != 0) {
+        chuser(batchId);
+        ls_syslog(LOG_ERR, I18N_FUNC_S_FAIL_M, fname, "fsync", acct0File);
+        goto acct0_failed;
+    }
     return (0);
+
+acct0_failed:
+    /* the partial copy is never used, and on a full disk it holds the space
+     * lsb.acct itself needs; lsb.acct is left untouched */
+    if (acctPtr != NULL)
+        FCLOSEUP(&acctPtr);
+    if (acct0Ptr != NULL)
+        FCLOSEUP(&acct0Ptr);
+    chuser(managerId);
+    unlink(acct0File);
+    chuser(batchId);
+    return (-1);
 }
 
 
