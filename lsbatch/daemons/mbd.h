@@ -50,6 +50,7 @@
 #define DEF_PRE_EXEC_DELAY    -1
 #define DEF_EADMIN_TRIGGER_DURATION  1
 #define DEF_EADMIN_TRIGGER_INTERVAL  0
+#define DEF_MIN_SWITCH_PERIOD        600
 
 /* Global MBD job lists
  */

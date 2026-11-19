@@ -938,6 +938,9 @@ bsub, bmod, btop, bbot, JOB_PRIORITY_OVER_TIME
 .PP
 \fBMIN_SWITCH_PERIOD\fR \fB=\fR \fIseconds
 \fR
+.PP
+An integer between 600 and 2147483647. A value outside this range is
+reported as a configuration error and ignored.
 .SS Description
 .BR
 .PP
@@ -955,12 +958,13 @@ mbatchd would switch back to back; set this parameter to space the
 switches out. A longer period lets lsb.events grow larger between
 switches, which makes mbatchd restart and each switch take longer.
 .PP
-It does not delay the recovery of an interrupted switch.
+It does not delay the recovery of an interrupted switch. The value in
+effect is shown by \fBbparams -l\fR.
 .SS Default
 .BR
 .PP
 .PP
-0 (no minimum period)
+600 seconds
 .SH MBD_SLEEP_TIME
 .BR
 .PP

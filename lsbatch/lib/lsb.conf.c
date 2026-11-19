@@ -149,6 +149,9 @@ static int parseLimitAndSpec (char *, int *, char **, char *, char *,
                               struct queueInfoEnt *, char *, int *, char *);
 
 static int my_atoi(char *, int, int);
+
+/* lower bound (and mbatchd default) of MIN_SWITCH_PERIOD, in seconds */
+#define MIN_SWITCH_PERIOD_LOW   600
 static float my_atof (char *, float, float);
 static void resetUConf (struct userConf *);
 static int copyHostInfo (struct hostInfoEnt *, struct hostInfoEnt *);
@@ -785,7 +788,28 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                 } else {
                     pConf->param->detectIdleJobAfter = value;
                 }
-            } else if (i == 47 || i == 48 || i == 49) {
+            } else if (i == 49) {
+                /* MIN_SWITCH_PERIOD: at least 600 seconds, up to INT_MAX */
+                char *endp;
+                long  period;
+
+                errno = 0;
+                period = strtol(keylist[i].val, &endp, 10);
+                if (errno != 0 || endp == keylist[i].val || *endp != '\0'
+                    || period < MIN_SWITCH_PERIOD_LOW
+                    || period > INFINIT_INT) {
+                    ls_syslog(LOG_ERR, "%s: File %s in section Parameters ending at line %d: Value <%s> of %s isn't an integer between %d and %d; ignored",
+                              pname, fname, *lineNum, keylist[i].val,
+                              keylist[i].key, MIN_SWITCH_PERIOD_LOW,
+                              INFINIT_INT);
+                    lsberrno = LSBE_CONF_WARNING;
+                } else {
+                    /* INFINIT_INT means "not set"; one second less is
+                     * the same period in practice */
+                    pConf->param->minSwitchPeriod = (period == INFINIT_INT)
+                        ? INFINIT_INT - 1 : (int)period;
+                }
+            } else if (i == 47 || i == 48) {
                 value = my_atoi(keylist[i].val, INFINIT_INT, -1);
                 if (value == INFINIT_INT) {
                     ls_syslog(LOG_ERR, _i18n_msg_get(ls_catd , NL_SETN, 5067,
@@ -793,10 +817,8 @@ do_Param(struct lsConf *conf, char *fname, int *lineNum)
                     lsberrno = LSBE_CONF_WARNING;
                 } else if (i == 47) {
                     pConf->param->eadminTriggerDuration = value;
-                } else if (i == 48) {
-                    pConf->param->eadminTriggerInterval = value;
                 } else {
-                    pConf->param->minSwitchPeriod = value;
+                    pConf->param->eadminTriggerInterval = value;
                 }
             } else if (i > 5) {
                 if ( i < 23 || i > 36)

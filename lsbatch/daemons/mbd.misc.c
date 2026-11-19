@@ -1341,6 +1341,7 @@ checkParams (struct infoReq *req, struct parameterInfo *reply)
     reply->detectIdleJobAfter = detectIdleJobAfter;
     reply->eadminTriggerDuration = eadminTriggerDuration;
     reply->eadminTriggerInterval = eadminTriggerInterval;
+    reply->minSwitchPeriod = minSwitchPeriod;
 }
 
 /*
