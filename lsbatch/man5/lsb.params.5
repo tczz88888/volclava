@@ -800,25 +800,17 @@ event log file is saved as lsb.events.\fIn\fR, with subsequent sequence
 number suffixes incremented by 1 each time a new log file is started. 
 Event logging continues in the new lsb.events file.
 .PP
-The switch is done by a child process of mbatchd, which keeps serving
-requests meanwhile: mbatchd creates lsb.events.tmp and lsb.events.delta,
-logs new events to lsb.events.delta and forks the child. The child builds
-the archive segment lsb.events.0 and the new event file, rotates
-lsb.events.\fIn\fR and rebuilds lsb.events.index. mbatchd then appends
-lsb.events.delta to lsb.events.tmp and publishes it as the new lsb.events.
-While a switch is still running no new one is started, and the counter
-of cleaned finished jobs is halved.
+The switch runs in a child process, so mbatchd keeps serving requests
+while the event log is rewritten and the archives are rotated. No new
+switch starts before the previous one has finished.
 .PP
 A switch interrupted by a failure of the child or by a stop of mbatchd is
-recovered automatically from the files left on disk, when the failure is
-detected, before the next switch and at mbatchd startup: an incomplete
-new event file is rolled back (the events of lsb.events.delta go back to
-lsb.events), a complete one is rolled forward and published. A recovery
-that fails, for example on a full disk, is retried on the next switch
-while new events keep going to lsb.events.delta. mbatchd only switches
-the event log itself at startup, when lsb.events contains records it
-cannot replay; a switch due at startup is otherwise started right after
-the startup.
+completed automatically: when the failure is detected, before the next
+switch, and at mbatchd startup. A switch that cannot complete, for
+example because the disk is full, is retried on a later switch. A switch
+needed at startup because lsb.events holds records that cannot be
+replayed is done by mbatchd itself before it starts serving; any other
+switch that is due is started once mbatchd is up.
 .SS Default
 .BR
 .PP
@@ -938,33 +930,37 @@ bsub, bmod, btop, bbot, JOB_PRIORITY_OVER_TIME
 .PP
 \fBMIN_SWITCH_PERIOD\fR \fB=\fR \fIseconds
 \fR
-.PP
-An integer between 600 and 2147483647. A value outside this range is
-reported as a configuration error and ignored.
 .SS Description
 .BR
 .PP
 .PP
 The minimum time in seconds between the completion of one event log
-switch and the start of the next one. A new lsb.events file is started
-only when both \fBMAX_JOB_NUM\fR finished jobs have been cleaned and at
-least \fBMIN_SWITCH_PERIOD\fR seconds have passed since the last switch
-completed. The time is counted from the start of mbatchd for the first
-switch.
+switch and the start of the next one; an integer of 600 or more. A
+value below 600 is reported as a configuration error and ignored. The
+time is counted from the start of mbatchd for the first switch.
+.PP
+A switch is started only when \fBMAX_JOB_NUM\fR finished jobs have been
+cleaned and at least \fBMIN_SWITCH_PERIOD\fR seconds have passed since
+the last switch completed.
 .PP
 Every switch rewrites the whole lsb.events file. When many jobs expire
 at once, \fBMAX_JOB_NUM\fR is reached again soon after each switch and
 mbatchd would switch back to back; set this parameter to space the
-switches out. A longer period lets lsb.events grow larger between
-switches, which makes mbatchd restart and each switch take longer.
+switches out. The longer the period, the more lsb.events grows between
+switches, which makes replay at mbatchd startup take longer.
 .PP
-It does not delay the recovery of an interrupted switch. The value in
+It does not delay the completion of an interrupted switch. The value in
 effect is shown by \fBbparams -l\fR.
+.SS See Also
+.BR
+.PP
+.PP
+MAX_JOB_NUM
 .SS Default
 .BR
 .PP
 .PP
-600 seconds
+600
 .SH MBD_SLEEP_TIME
 .BR
 .PP
