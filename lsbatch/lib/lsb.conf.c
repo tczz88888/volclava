@@ -54,6 +54,9 @@
     (_i18n_msg_get(ls_catd, NL_SETN, 5055, LSB_IN_SEND_RCV_STR))
 #define MAX_SELECTED_LOADS 4
 
+/* lower bound, and mbatchd default, of MIN_SWITCH_PERIOD in seconds */
+#define MIN_SWITCH_PERIOD_LOW   600
+
 static struct paramConf *pConf= NULL;
 static struct userConf *uConf = NULL;
 static struct hostConf *hConf = NULL;
@@ -149,9 +152,6 @@ static int parseLimitAndSpec (char *, int *, char **, char *, char *,
                               struct queueInfoEnt *, char *, int *, char *);
 
 static int my_atoi(char *, int, int);
-
-/* lower bound (and mbatchd default) of MIN_SWITCH_PERIOD, in seconds */
-#define MIN_SWITCH_PERIOD_LOW   600
 static float my_atof (char *, float, float);
 static void resetUConf (struct userConf *);
 static int copyHostInfo (struct hostInfoEnt *, struct hostInfoEnt *);
