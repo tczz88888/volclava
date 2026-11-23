@@ -160,7 +160,7 @@ static char             jlogFname[MAXFILENAMELEN];
  * mbatchd log is not writable and messages would end up in syslog.
  * errno is kept for %m and for the caller.
  */
-#define SWITCH_LOG(...)                                 \
+#define LOG_AS_DAEMON(...)                              \
     do {                                                \
         int   switchLogErrno_ = errno;                  \
         uid_t switchLogSvUid_ = chuser(batchId);        \
@@ -172,7 +172,7 @@ static char             jlogFname[MAXFILENAMELEN];
 /* header of a baseline being built; replaced by the history offset */
 #define ELOG_BASELINE_HEADER    "#                                     \n"
 
-/* elogHeaderNumbers(): the file could not be opened or read */
+/* readHeaderNumbers(): the file could not be opened or read */
 #define ELOG_HEADER_UNREADABLE  (-2)
 
 static char             tmpElogFname[MAXFILENAMELEN];   /* lsb.events.tmp: new baseline under construction */
@@ -202,26 +202,26 @@ static volatile sig_atomic_t   switchChildDone = 0;
 static volatile sig_atomic_t   switchChildStatus = 0;
 
 static int              switchLogRecover(int);
-static void             switchLogParkRound(void);
+static void             switchLogSuspendRound(void);
 static void             switchLogReplayDelta(void);
 static void             switchChildCheckParent(void);
 static int              forkSwitchLog(void);
-static int              switchLogPrepare(void);
+static int              switchLogBeginRound(void);
 static void             switchLogChildMain(void);
-static void             switchChildFail(int);
-static int              elogHeaderNumbers(const char *, long *, long *);
-static int              deltaRecordedPoint(const char *, off_t *);
+static void             switchChildAbort(int);
+static int              readHeaderNumbers(const char *, long *, long *);
+static int              readDeltaMergePoint(const char *, off_t *);
 static void             switchLogUndoRollback(void);
-static int              deltaRecordBaselineEnd(off_t);
-static int              appendDeltaTo(const char *, off_t, off_t *);
+static int              writeDeltaMergePoint(off_t);
+static int              mergeDeltaInto(const char *, off_t, off_t *);
 static off_t            lastNewlineEnd(int, off_t);
 static int              trimToLastNewline(const char *, off_t *);
 static int              switchLogDropRound(void);
 static int              switchLogRollback(void);
 static int              switchLogRollForward(int);
 static int              switchLogPublish(const char *);
-static int              scanBaselineEvents(FILE *, FILE *, char *, int);
-static int              putEventRecTo(FILE *, struct eventRec *, int, time_t);
+static int              writeBaselineEvents(FILE *, FILE *, char *, int);
+static int              writeEventRec(FILE *, struct eventRec *, int, time_t);
 
 static struct eventRec *logPtr;
 
@@ -2402,7 +2402,7 @@ putEventRec1(char *fname)
  * it neither picks the active event file nor closes the stream.
  */
 static int
-putEventRecTo(FILE *fp, struct eventRec *rec, int type, time_t eventTime)
+writeEventRec(FILE *fp, struct eventRec *rec, int type, time_t eventTime)
 {
     sprintf(rec->version, "%d", VOLCLAVA_VERSION);
     rec->type = type;
@@ -2586,7 +2586,7 @@ switchELog (void)
     if (switchState == SWITCH_CHILD_RUNNING && switchChildPid > 0
         && !switchChildDone && !switchChildKillSent
         && time(0) - switchStartTime > SWITCH_CHILD_MAX_RUNTIME) {
-        SWITCH_LOG(LOG_ERR, "%s: lsb.events switch process <%d> running for \
+        LOG_AS_DAEMON(LOG_ERR, "%s: lsb.events switch process <%d> running for \
 %d seconds; killed", __func__, (int)switchChildPid,
                    (int)(time(0) - switchStartTime));
         kill(switchChildPid, SIGKILL);
@@ -2612,11 +2612,11 @@ switchELog (void)
         } else if (t - lastReminder >= SWITCH_REMIND_INTERVAL) {
             lastReminder = t;
             if (stalled)
-                SWITCH_LOG(LOG_WARNING, "%s: lsb.events switch has not \
+                LOG_AS_DAEMON(LOG_WARNING, "%s: lsb.events switch has not \
 completed for over %d hours; retried when the next switch is due", __func__,
                            (int)((t - troubleSince) / 3600));
             else
-                SWITCH_LOG(LOG_WARNING, "%s: lsb.events switch process <%d> \
+                LOG_AS_DAEMON(LOG_WARNING, "%s: lsb.events switch process <%d> \
 has not exited for over %d hours after being killed", __func__,
                            (int)switchChildPid, (int)((t - troubleSince) / 3600));
         }
@@ -2771,9 +2771,9 @@ Acct_exiterr:
  * Returns 0 on success, -1 on failure.
  */
 static int
-scanBaselineEvents(FILE *efp, FILE *tmpfp, char *tmpfn, int inChild)
+writeBaselineEvents(FILE *efp, FILE *tmpfp, char *tmpfn, int inChild)
 {
-    static char             fname[] = "scanBaselineEvents";
+    static char             fname[] = "writeBaselineEvents";
     int                     lineNum = 0;
     LS_LONG_INT             jobId = 0;
     struct jData           *jp, *jarray;
@@ -2786,7 +2786,7 @@ scanBaselineEvents(FILE *efp, FILE *tmpfp, char *tmpfn, int inChild)
 
         if ((logPtr = lsb_geteventrec(efp, &lineNum)) == NULL) {
             if (lsberrno != LSBE_EOF) {
-                SWITCH_LOG(LOG_ERR, "\
+                LOG_AS_DAEMON(LOG_ERR, "\
 %s: reading line %d in file %s: %s", fname, lineNum,
                           elogFname, lsb_sysmsg());
 
@@ -2920,7 +2920,7 @@ scanBaselineEvents(FILE *efp, FILE *tmpfp, char *tmpfn, int inChild)
                     || (logPtr->type == EVENT_JOB_CLEAN)))) {
 
             if (lsb_puteventrec(tmpfp, logPtr) == -1) {
-                SWITCH_LOG(LOG_ERR, I18N_FUNC_S_FAIL_MM,
+                LOG_AS_DAEMON(LOG_ERR, I18N_FUNC_S_FAIL_MM,
                           fname, "lsb_puteventrec", tmpfn);
                 return -1;
             }
@@ -3010,7 +3010,7 @@ switch_log(void)
     initHostCtrlTable();
     initQueueCtrlTable();
 
-    if (scanBaselineEvents(efp, tmpfp, tmpfn, FALSE) < 0) {
+    if (writeBaselineEvents(efp, tmpfp, tmpfn, FALSE) < 0) {
         chuser(managerId);
         FCLOSEUP(&efp);
         FCLOSEUP(&tmpfp);
@@ -3107,7 +3107,7 @@ Fail to switch lsb.events; see mbatchd error log for details");
 /*
  * Read the two leading numbers of an event file header: the history seek
  * offset of a complete baseline, and the recorded merge point of the delta
- * (see deltaRecordBaselineEnd()).  Existing readers only parse the first.
+ * (see writeDeltaMergePoint()).  Existing readers only parse the first.
  *
  * @param[in] path: Event file to inspect.
  * @param[out] first: First header number, untouched if absent; may be NULL.
@@ -3117,7 +3117,7 @@ Fail to switch lsb.events; see mbatchd error log for details");
  *          cannot be opened or read - not to be taken as "raw".
  */
 static int
-elogHeaderNumbers(const char *path, long *first, long *second)
+readHeaderNumbers(const char *path, long *first, long *second)
 {
     FILE *fp;
     long  a = 0;
@@ -3161,9 +3161,9 @@ elogHeaderNumbers(const char *path, long *first, long *second)
  * @return: 0 on success, -1 on failure.
  */
 static int
-deltaRecordBaselineEnd(off_t baselineEnd)
+writeDeltaMergePoint(off_t baselineEnd)
 {
-    static char fname[] = "deltaRecordBaselineEnd";
+    static char fname[] = "writeDeltaMergePoint";
     char        buf[64];
     int         len;
     int         fd;
@@ -3173,13 +3173,13 @@ deltaRecordBaselineEnd(off_t baselineEnd)
     len = sprintf(buf, "#80 %lld", (long long)baselineEnd);
 
     if ((fd = open(deltaElogFname, O_WRONLY)) < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "open",
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "open",
                   deltaElogFname);
         return -1;
     }
 
     if (pwrite(fd, buf, len, 0) != len || fsync(fd) < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "pwrite",
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "pwrite",
                   deltaElogFname);
         close(fd);
         return -1;
@@ -3200,7 +3200,7 @@ deltaRecordBaselineEnd(off_t baselineEnd)
  *          set if the delta or the target cannot be read.
  */
 static int
-deltaRecordedPoint(const char *target, off_t *point)
+readDeltaMergePoint(const char *target, off_t *point)
 {
     struct stat st;
     long        recorded = -1;
@@ -3208,7 +3208,7 @@ deltaRecordedPoint(const char *target, off_t *point)
     int         cc;
     int         fd;
 
-    cc = elogHeaderNumbers(deltaElogFname, NULL, &recorded);
+    cc = readHeaderNumbers(deltaElogFname, NULL, &recorded);
     if (cc == ELOG_HEADER_UNREADABLE)
         return -1;
     if (cc < 2)
@@ -3253,9 +3253,9 @@ deltaRecordedPoint(const char *target, off_t *point)
  * @return: 0 on success, -1 on failure.
  */
 static int
-appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
+mergeDeltaInto(const char *dstPath, off_t truncateTo, off_t *copied)
 {
-    static char fname[] = "appendDeltaTo";
+    static char fname[] = "mergeDeltaInto";
     FILE       *dfp = NULL;
     FILE       *dstfp = NULL;
     char        buf[MSGSIZE];
@@ -3269,7 +3269,7 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
         *copied = 0;
 
     if ((dfp = fopen(deltaElogFname, "r")) == NULL) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen",
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen",
                   deltaElogFname);
         return -1;
     }
@@ -3283,7 +3283,7 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
         FCLOSEUP(&dfp);
         if (readError) {
             errno = saveErrno;
-            SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fgets",
+            LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fgets",
                        deltaElogFname);
             return -1;
         }
@@ -3297,7 +3297,7 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
     pos = ftell(dfp);
     if (fstat(fileno(dfp), &st) < 0
         || (recordsEnd = lastNewlineEnd(fileno(dfp), st.st_size)) < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "pread",
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "pread",
                   deltaElogFname);
         FCLOSEUP(&dfp);
         return -1;
@@ -3311,19 +3311,19 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
 
     /* Step 3: prepare the target - cut it back if asked, seek to its end */
     if ((dstfp = fopen(dstPath, "r+")) == NULL) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen", dstPath);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen", dstPath);
         FCLOSEUP(&dfp);
         return -1;
     }
 
     if (truncateTo >= 0 && ftruncate(fileno(dstfp), truncateTo) < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "ftruncate",
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "ftruncate",
                   dstPath);
         goto append_failed;
     }
 
     if (fseek(dstfp, 0, SEEK_END) != 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fseek", dstPath);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fseek", dstPath);
         goto append_failed;
     }
 
@@ -3335,13 +3335,13 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
             want = (size_t)(recordsEnd - pos);
 
         if ((cc = fread(buf, 1, want, dfp)) == 0) {
-            SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fread",
+            LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fread",
                       deltaElogFname);
             goto append_failed;
         }
 
         if (fwrite(buf, 1, cc, dstfp) != cc) {
-            SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fwrite",
+            LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fwrite",
                       dstPath);
             goto append_failed;
         }
@@ -3353,13 +3353,13 @@ appendDeltaTo(const char *dstPath, off_t truncateTo, off_t *copied)
 
     /* Step 5: make the appended records durable */
     if (fflush(dstfp) != 0 || fsync(fileno(dstfp)) < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fsync", dstPath);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fsync", dstPath);
         FCLOSEUP(&dstfp);
         return -1;
     }
 
     if (FCLOSEUP(&dstfp) < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fclose", dstPath);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fclose", dstPath);
         return -1;
     }
 
@@ -3391,7 +3391,7 @@ switchLogDropRound(void)
     /* Step 1: the commit point */
     if (unlink(tmpElogFname) < 0 && errno != ENOENT) {
         chuser(batchId);
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, __func__, "unlink",
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, __func__, "unlink",
                    tmpElogFname);
         switchState = SWITCH_STALLED;
         return -1;
@@ -3452,29 +3452,29 @@ trimToLastNewline(const char *path, off_t *size)
     int         fd;
 
     if ((fd = open(path, O_RDWR)) < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "open", path);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "open", path);
         return -1;
     }
 
     if (fstat(fd, &st) < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fstat", path);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fstat", path);
         close(fd);
         return -1;
     }
 
     if ((end = lastNewlineEnd(fd, st.st_size)) < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "pread", path);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "pread", path);
         close(fd);
         return -1;
     }
 
     if (end != st.st_size) {
-        SWITCH_LOG(LOG_WARNING, "\
+        LOG_AS_DAEMON(LOG_WARNING, "\
 %s: lsb.events ends with an incomplete record; removed %lld bytes",
                    fname, (long long)(st.st_size - end));
 
         if (ftruncate(fd, end) < 0 || fsync(fd) < 0) {
-            SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "ftruncate",
+            LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "ftruncate",
                       path);
             close(fd);
             return -1;
@@ -3512,13 +3512,13 @@ switchLogRollback(void)
      * delta would read as the leftover of a finished publish.
      */
     if (unlink(event0Fname) < 0 && errno != ENOENT)
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "unlink",
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "unlink",
                    event0Fname);
 
     /* a round is only rolled back with its delta file present */
     if (stat(deltaElogFname, &st) < 0) {
         chuser(batchId);
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "stat",
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "stat",
                    deltaElogFname);
         return -1;
     }
@@ -3529,21 +3529,21 @@ switchLogRollback(void)
          * Step 2: find (an earlier attempt died half way) or record where
          * lsb.events ended before the merge
          */
-        if ((recorded = deltaRecordedPoint(elogFname, &truncateTo)) < 0) {
+        if ((recorded = readDeltaMergePoint(elogFname, &truncateTo)) < 0) {
             chuser(batchId);
             return -1;
         }
 
         if (!recorded) {
             if (trimToLastNewline(elogFname, &truncateTo) < 0
-                || deltaRecordBaselineEnd(truncateTo) < 0) {
+                || writeDeltaMergePoint(truncateTo) < 0) {
                 chuser(batchId);
                 return -1;
             }
         }
 
         /* Step 3: cut back to that point and append the whole delta */
-        if (appendDeltaTo(elogFname, truncateTo, &copied) < 0) {
+        if (mergeDeltaInto(elogFname, truncateTo, &copied) < 0) {
             chuser(batchId);
             return -1;
         }
@@ -3551,7 +3551,7 @@ switchLogRollback(void)
 
     chuser(batchId);
 
-    SWITCH_LOG(LOG_DEBUG, "%s: %lld bytes of delta events merged back into %s",
+    LOG_AS_DAEMON(LOG_DEBUG, "%s: %lld bytes of delta events merged back into %s",
                fname, (long long)copied, elogFname);
     return 0;
 }
@@ -3572,7 +3572,7 @@ switchLogPublish(const char *fname)
 
     if (rename(tmpElogFname, elogFname) < 0) {
         chuser(batchId);
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_S_FAIL_M, fname, "rename",
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_S_FAIL_M, fname, "rename",
                   tmpElogFname, elogFname);
         return -1;
     }
@@ -3583,7 +3583,7 @@ switchLogPublish(const char *fname)
 
     /* Step 3: only now the delta can go (see the order rule above) */
     if (unlink(deltaElogFname) < 0 && errno != ENOENT)
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "unlink",
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "unlink",
                   deltaElogFname);
 
     chuser(batchId);
@@ -3636,7 +3636,7 @@ switchLogRollForward(int expectDelta)
 
     if (haveZero) {
 
-        SWITCH_LOG(LOG_DEBUG, "\
+        LOG_AS_DAEMON(LOG_DEBUG, "\
 %s: finishing the archive rotation of an interrupted switch", fname);
 
         if ((totalEventFile = renameElogFiles()) <= 0) {
@@ -3652,7 +3652,7 @@ switchLogRollForward(int expectDelta)
 
         chuser(managerId);
         if (updateJobIdIndexFile(indexFile, elogFname, totalEventFile) < 0)
-            SWITCH_LOG(LOG_ERR, "\
+            LOG_AS_DAEMON(LOG_ERR, "\
 %s: updateJobIdIndexFile(%s) failed: %s; rebuilt when the next switch is due",
                       fname, indexFile, lsb_sysmsg());
     }
@@ -3668,7 +3668,7 @@ switchLogRollForward(int expectDelta)
     haveDelta = (stat(deltaElogFname, &st) == 0);
     if (!haveDelta && (errno != ENOENT || expectDelta)) {
         chuser(batchId);
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "stat",
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "stat",
                    deltaElogFname);
         return -1;
     }
@@ -3681,13 +3681,13 @@ switchLogRollForward(int expectDelta)
             return -1;
         }
 
-        if ((recorded = deltaRecordedPoint(tmpElogFname, &truncateTo)) < 0
-            || (!recorded && deltaRecordBaselineEnd(tmpSt.st_size) < 0)) {
+        if ((recorded = readDeltaMergePoint(tmpElogFname, &truncateTo)) < 0
+            || (!recorded && writeDeltaMergePoint(tmpSt.st_size) < 0)) {
             chuser(batchId);
             return -1;
         }
 
-        if (appendDeltaTo(tmpElogFname, truncateTo, &copied) < 0) {
+        if (mergeDeltaInto(tmpElogFname, truncateTo, &copied) < 0) {
             chuser(batchId);
             return -1;
         }
@@ -3699,7 +3699,7 @@ switchLogRollForward(int expectDelta)
     if (switchLogPublish(fname) < 0)
         return -1;
 
-    SWITCH_LOG(LOG_DEBUG, "%s: %s published, %lld bytes of delta events merged",
+    LOG_AS_DAEMON(LOG_DEBUG, "%s: %s published, %lld bytes of delta events merged",
                fname, elogFname, (long long)copied);
     return 0;
 }
@@ -3718,7 +3718,7 @@ switchLogUndoRollback(void)
     int   cc;
 
     chuser(managerId);
-    cc = deltaRecordedPoint(elogFname, &point);
+    cc = readDeltaMergePoint(elogFname, &point);
     if (cc == 0) {
         /* nothing recorded, so nothing was appended */
         chuser(batchId);
@@ -3727,7 +3727,7 @@ switchLogUndoRollback(void)
 
     if (cc < 0 || (fd = open(elogFname, O_WRONLY)) < 0) {
         chuser(batchId);
-        SWITCH_LOG(LOG_ERR, "\
+        LOG_AS_DAEMON(LOG_ERR, "\
 %s: Fail to undo the merge of the interrupted lsb.events switch: %m; \
 its events may be loaded twice after a restart", __func__);
         return;
@@ -3739,7 +3739,7 @@ its events may be loaded twice after a restart", __func__);
         close(fd);
         chuser(batchId);
         errno = saveErrno;
-        SWITCH_LOG(LOG_ERR, "\
+        LOG_AS_DAEMON(LOG_ERR, "\
 %s: Fail to undo the merge of the interrupted lsb.events switch: %m; \
 its events may be loaded twice after a restart", __func__);
         return;
@@ -3747,7 +3747,7 @@ its events may be loaded twice after a restart", __func__);
 
     close(fd);
     chuser(batchId);
-    SWITCH_LOG(LOG_DEBUG, "switchLogUndoRollback: %s cut back to %lld bytes",
+    LOG_AS_DAEMON(LOG_DEBUG, "switchLogUndoRollback: %s cut back to %lld bytes",
                elogFname, (long long)point);
 }
 
@@ -3758,7 +3758,7 @@ its events may be loaded twice after a restart", __func__);
  * later rollback would put in front of older delta events.
  */
 static void
-switchLogParkRound(void)
+switchLogSuspendRound(void)
 {
     elogWriteTarget = deltaElogFname;
     switchState = SWITCH_STALLED;
@@ -3787,13 +3787,13 @@ switchLogReplayDelta(void)
     chuser(batchId);
 
     if (fp == NULL) {
-        SWITCH_LOG(LOG_ERR, "\
+        LOG_AS_DAEMON(LOG_ERR, "\
 %s: Fail to read the events of the interrupted lsb.events switch: %m",
                    fname);
         return;
     }
 
-    SWITCH_LOG(LOG_DEBUG, "%s: replaying %s after %s", fname, deltaElogFname,
+    LOG_AS_DAEMON(LOG_DEBUG, "%s: replaying %s after %s", fname, deltaElogFname,
                elogFname);
 
     if (lsberrno == LSBE_EOF)
@@ -3802,7 +3802,7 @@ switchLogReplayDelta(void)
     while (lsberrno != LSBE_EOF) {
         if ((logPtr = lsb_geteventrec(fp, &lineNum)) == NULL) {
             if (lsberrno != LSBE_EOF) {
-                SWITCH_LOG(LOG_ERR, "\
+                LOG_AS_DAEMON(LOG_ERR, "\
 %s: Fail to read the events of the interrupted lsb.events switch at line \
 %d: %s", fname, lineNum, lsb_sysmsg());
                 if (lsberrno == LSBE_NO_MEM)
@@ -3893,7 +3893,7 @@ switchLogRecover(int expect)
     /* nothing left over: the only state a complete round never shows */
     if (!haveTmp && !haveDelta && !haveZero) {
         if (expect == RECOVER_EXPECT_COMPLETE)
-            SWITCH_LOG(LOG_ERR, "\
+            LOG_AS_DAEMON(LOG_ERR, "\
 %s: Events logged during the last lsb.events switch may be lost", fname);
         switchState = SWITCH_IDLE;
         elogWriteTarget = elogFname;
@@ -3909,7 +3909,7 @@ switchLogRecover(int expect)
         int cc;
 
         chuser(managerId);
-        cc = elogHeaderNumbers(tmpElogFname, &histPos, NULL);
+        cc = readHeaderNumbers(tmpElogFname, &histPos, NULL);
         saveErrno = errno;
         chuser(batchId);
         if (cc == ELOG_HEADER_UNREADABLE)
@@ -3935,11 +3935,11 @@ switchLogRecover(int expect)
 
     if (!asExpected) {
         if (expect == RECOVER_EXPECT_COMPLETE)
-            SWITCH_LOG(LOG_ERR, "\
+            LOG_AS_DAEMON(LOG_ERR, "\
 %s: The lsb.events switch process reported success but did not finish; \
 recovering", fname);
         else
-            SWITCH_LOG(LOG_WARNING, "\
+            LOG_AS_DAEMON(LOG_WARNING, "\
 %s: Found an interrupted lsb.events switch; recovering", fname);
     }
 
@@ -3951,7 +3951,7 @@ recovering", fname);
          */
         chuser(managerId);
         if (haveDelta && unlink(deltaElogFname) < 0 && errno != ENOENT)
-            SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "unlink",
+            LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "unlink",
                        deltaElogFname);
         if (haveZero)
             unlink(event0Fname);
@@ -3960,10 +3960,10 @@ recovering", fname);
         switchState = SWITCH_IDLE;
 
         if (haveDelta)
-            SWITCH_LOG(LOG_WARNING, "\
+            LOG_AS_DAEMON(LOG_WARNING, "\
 %s: Completed the interrupted lsb.events switch", fname);
         else
-            SWITCH_LOG(LOG_WARNING, "\
+            LOG_AS_DAEMON(LOG_WARNING, "\
 %s: Aborted the interrupted lsb.events switch; retried when the next \
 switch is due", fname);
         return 0;
@@ -3980,12 +3980,12 @@ switch is due", fname);
             saveErrno = errno;
             if (haveDelta) {
                 switchLogUndoRollback();
-                switchLogParkRound();
+                switchLogSuspendRound();
             }
             goto failed;
         }
 
-        SWITCH_LOG(LOG_WARNING, "\
+        LOG_AS_DAEMON(LOG_WARNING, "\
 %s: Aborted the interrupted lsb.events switch; retried when the next \
 switch is due", fname);
         return 0;
@@ -3994,7 +3994,7 @@ switch is due", fname);
     if (haveDelta) {
         if (switchLogRollForward(TRUE) < 0) {
             saveErrno = errno;
-            switchLogParkRound();
+            switchLogSuspendRound();
             goto failed;
         }
 
@@ -4002,7 +4002,7 @@ switch is due", fname);
         if (expect == RECOVER_EXPECT_COMPLETE && asExpected)
             return 1;
 
-        SWITCH_LOG(LOG_WARNING, "\
+        LOG_AS_DAEMON(LOG_WARNING, "\
 %s: Completed the interrupted lsb.events switch", fname);
         return 0;
     }
@@ -4017,7 +4017,7 @@ switch is due", fname);
             goto failed;
         }
 
-        SWITCH_LOG(LOG_ERR, "\
+        LOG_AS_DAEMON(LOG_ERR, "\
 %s: Events logged during the last lsb.events switch may be lost", fname);
         return 0;
     }
@@ -4037,11 +4037,11 @@ switch is due", fname);
     if (tmpSt.st_mtime >= activeSt.st_mtime) {
         if (switchLogRollForward(FALSE) < 0) {
             saveErrno = errno;
-            switchLogParkRound();
+            switchLogSuspendRound();
             goto failed;
         }
 
-        SWITCH_LOG(LOG_ERR, "\
+        LOG_AS_DAEMON(LOG_ERR, "\
 %s: Events logged during the last lsb.events switch may be lost", fname);
         return 0;
     }
@@ -4051,13 +4051,13 @@ switch is due", fname);
         goto failed;
     }
 
-    SWITCH_LOG(LOG_WARNING, "\
+    LOG_AS_DAEMON(LOG_WARNING, "\
 %s: Discarded an outdated lsb.events switch", fname);
     return 0;
 
 failed:
     errno = saveErrno;
-    SWITCH_LOG(LOG_ERR, "\
+    LOG_AS_DAEMON(LOG_ERR, "\
 %s: Fail to recover the interrupted lsb.events switch: %m; retried when \
 the next switch is due", fname);
     return 0;
@@ -4068,7 +4068,7 @@ unreadable_nochuser:
     switchLogStatErrno = saveErrno;
     switchState = SWITCH_STALLED;
     errno = saveErrno;
-    SWITCH_LOG(LOG_ERR, "\
+    LOG_AS_DAEMON(LOG_ERR, "\
 %s: Fail to check the interrupted lsb.events switch: %m; retried when \
 the next switch is due", fname);
     return 0;
@@ -4080,9 +4080,9 @@ the next switch is due", fname);
  * @return: 0 on success, -1 on failure with every created file removed.
  */
 static int
-switchLogPrepare(void)
+switchLogBeginRound(void)
 {
-    static char fname[] = "switchLogPrepare";
+    static char fname[] = "switchLogBeginRound";
     FILE       *fp;
     int         fd;
 
@@ -4097,12 +4097,12 @@ switchLogPrepare(void)
              * switchLogRecover() instead of skipping every switch
              */
             switchState = SWITCH_STALLED;
-            SWITCH_LOG(LOG_DEBUG, "\
+            LOG_AS_DAEMON(LOG_DEBUG, "\
 %s: %s already exists, so a previous switch_log did not finish; this \
 switch is skipped and the leftover is recovered on the next trigger",
                       fname, tmpElogFname);
         } else
-            SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "open",
+            LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "open",
                       tmpElogFname);
         return -1;
     }
@@ -4121,7 +4121,7 @@ switch is skipped and the leftover is recovered on the next trigger",
     if ((fp = fopen(deltaElogFname, "w")) == NULL) {
         int saveErrno = errno;
 
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen",
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen",
                   deltaElogFname);
         chuser(batchId);
         switchLogDropRound();
@@ -4144,12 +4144,12 @@ switch is skipped and the leftover is recovered on the next trigger",
  * @param[in] sysError: TRUE if the failing step was a system call.
  */
 static void
-switchChildFail(int sysError)
+switchChildAbort(int sysError)
 {
     if (sysError)
-        SWITCH_LOG(LOG_ERR, "switchLogChild: Fail to switch lsb.events: %m");
+        LOG_AS_DAEMON(LOG_ERR, "switchLogChild: Fail to switch lsb.events: %m");
     else
-        SWITCH_LOG(LOG_ERR, "switchLogChild: Fail to switch lsb.events");
+        LOG_AS_DAEMON(LOG_ERR, "switchLogChild: Fail to switch lsb.events");
     _exit(SWITCH_CHILD_EXIT_FAIL);
 }
 
@@ -4176,20 +4176,20 @@ switchLogChildMain(void)
     /* Step 1: archive segment of the frozen active file */
     switchChildCheckParent();
     if (createEvent0File() < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_FAIL, fname, "createEvent0File");
-        switchChildFail(TRUE);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_FAIL, fname, "createEvent0File");
+        switchChildAbort(TRUE);
     }
 
     /* Step 2: compressed baseline of the frozen active file */
     switchChildCheckParent();
     if ((tmpfp = fopen(tmpElogFname, "w")) == NULL) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen", tmpElogFname);
-        switchChildFail(TRUE);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen", tmpElogFname);
+        switchChildAbort(TRUE);
     }
 
     if ((efp = fopen(elogFname, "r")) == NULL) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen", elogFname);
-        switchChildFail(TRUE);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fopen", elogFname);
+        switchChildAbort(TRUE);
     }
 
     fprintf(tmpfp, ELOG_BASELINE_HEADER);
@@ -4197,9 +4197,9 @@ switchLogChildMain(void)
     initHostCtrlTable();
     initQueueCtrlTable();
 
-    if (scanBaselineEvents(efp, tmpfp, tmpElogFname, TRUE) < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_FAIL, fname, "scanBaselineEvents");
-        switchChildFail(FALSE);
+    if (writeBaselineEvents(efp, tmpfp, tmpElogFname, TRUE) < 0) {
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_FAIL, fname, "writeBaselineEvents");
+        switchChildAbort(FALSE);
     }
     FCLOSEUP(&efp);
 
@@ -4216,16 +4216,16 @@ switchLogChildMain(void)
     memset(&rec, 0, sizeof(rec));
     rec.eventLog.logSwitchLog.lastJobId = nextJobId;
 
-    if (putEventRecTo(tmpfp, &rec, EVENT_LOG_SWITCH, switchStartTime) < 0)
-        switchChildFail(FALSE);
+    if (writeEventRec(tmpfp, &rec, EVENT_LOG_SWITCH, switchStartTime) < 0)
+        switchChildAbort(FALSE);
 
     /*
      * the host and queue records do not report write errors, and fflush()
      * would not repeat them: check the stream
      */
     if (ferror(tmpfp)) {
-        SWITCH_LOG(LOG_DEBUG, "%s: writing %s failed", fname, tmpElogFname);
-        switchChildFail(FALSE);
+        LOG_AS_DAEMON(LOG_DEBUG, "%s: writing %s failed", fname, tmpElogFname);
+        switchChildAbort(FALSE);
     }
 
     /*
@@ -4233,8 +4233,8 @@ switchLogChildMain(void)
      * recovery trusts, then the offset itself: two barriers
      */
     if (fflush(tmpfp) != 0 || fsync(fileno(tmpfp)) < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpElogFname);
-        switchChildFail(TRUE);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpElogFname);
+        switchChildAbort(TRUE);
     }
 
     /* writing the offset hands the round to roll forward; not as an orphan */
@@ -4243,19 +4243,19 @@ switchLogChildMain(void)
     fprintf(tmpfp, "#%ld", pos);
 
     if (fflush(tmpfp) != 0 || fsync(fileno(tmpfp)) < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpElogFname);
-        switchChildFail(TRUE);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpElogFname);
+        switchChildAbort(TRUE);
     }
 
     if (FCLOSEUP(&tmpfp) < 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fclose", tmpElogFname);
-        switchChildFail(TRUE);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fclose", tmpElogFname);
+        switchChildAbort(TRUE);
     }
 
     /* Step 6: rotate .N -> .N+1 ... .0 -> .1 (checks the parent per rename) */
     if ((totalEventFile = renameElogFiles()) <= 0) {
-        SWITCH_LOG(LOG_DEBUG, I18N_FUNC_FAIL, fname, "renameElogFiles");
-        switchChildFail(TRUE);
+        LOG_AS_DAEMON(LOG_DEBUG, I18N_FUNC_FAIL, fname, "renameElogFiles");
+        switchChildAbort(TRUE);
     }
 
     /* Step 7: the index; a failure only means the next switch rebuilds it */
@@ -4265,11 +4265,11 @@ switchLogChildMain(void)
     chuser(managerId);
     switchChildCheckParent();
     if (updateJobIdIndexFile(indexFile, elogFname, totalEventFile) < 0)
-        SWITCH_LOG(LOG_ERR, "\
+        LOG_AS_DAEMON(LOG_ERR, "\
 %s: updateJobIdIndexFile(%s) failed: %s; rebuilt when the next switch is due",
                   fname, indexFile, lsb_sysmsg());
 
-    SWITCH_LOG(LOG_DEBUG, "\
+    LOG_AS_DAEMON(LOG_DEBUG, "\
 %s: switch child done, %d archive files", fname, totalEventFile);
 
     _exit(SWITCH_CHILD_EXIT_OK);
@@ -4312,7 +4312,7 @@ forkSwitchLog(void)
 
     /* Step 1: only one round at a time */
     if (switchState != SWITCH_IDLE) {
-        SWITCH_LOG(LOG_DEBUG, "\
+        LOG_AS_DAEMON(LOG_DEBUG, "\
 %s: previous switch_log is still in state %d", fname, switchState);
         return -1;
     }
@@ -4321,9 +4321,9 @@ forkSwitchLog(void)
      * Step 2: create .tmp and .delta; a leftover .tmp parks the round
      * instead, reported by the recovery
      */
-    if (switchLogPrepare() < 0) {
+    if (switchLogBeginRound() < 0) {
         if (switchState != SWITCH_STALLED)
-            SWITCH_LOG(LOG_ERR, "\
+            LOG_AS_DAEMON(LOG_ERR, "\
 %s: Fail to start the lsb.events switch: %m; retried when the next switch \
 is due", fname);
         return -1;
@@ -4370,7 +4370,7 @@ is due", fname);
         sigprocmask(SIG_SETMASK, &oldmask, NULL);
         switchLogDropRound();
         errno = forkErrno;
-        SWITCH_LOG(LOG_ERR, "\
+        LOG_AS_DAEMON(LOG_ERR, "\
 %s: Fail to start the lsb.events switch: %m; retried when the next switch \
 is due", fname);
         return -1;
@@ -4383,7 +4383,7 @@ is due", fname);
 
     sigprocmask(SIG_SETMASK, &oldmask, NULL);
 
-    SWITCH_LOG(LOG_INFO, "%s: Switching lsb.events in background process <%d>",
+    LOG_AS_DAEMON(LOG_INFO, "%s: Switching lsb.events in background process <%d>",
                fname, (int)pid);
 
     return 0;
@@ -4427,7 +4427,7 @@ switchLogKillChild(void)
     if (pid <= 0)
         return;
 
-    SWITCH_LOG(LOG_INFO, "\
+    LOG_AS_DAEMON(LOG_INFO, "\
 %s: Stopping lsb.events switch process <%d>",
                __func__, (int)pid);
 
@@ -4477,11 +4477,11 @@ switchLogCheckChild(void)
         expect = RECOVER_EXPECT_INTERRUPTED;
         /* a failing child has logged its reason itself */
         if (WIFSIGNALED(status))
-            SWITCH_LOG(LOG_ERR, "\
+            LOG_AS_DAEMON(LOG_ERR, "\
 %s: lsb.events switch process <%d> was killed by signal %d", fname,
                        (int)pid, WTERMSIG(status));
         else
-            SWITCH_LOG(LOG_DEBUG, "\
+            LOG_AS_DAEMON(LOG_DEBUG, "\
 %s: lsb.events switch process <%d> exited with code %d", fname,
                        (int)pid, WIFEXITED(status) ? WEXITSTATUS(status) : -1);
     }
@@ -4489,7 +4489,7 @@ switchLogCheckChild(void)
     /* Step 3: the files are ours: publish, roll back or drop the round */
     switchState = SWITCH_STALLED;
     if (switchLogRecover(expect) == 1)
-        SWITCH_LOG(LOG_INFO, "%s: lsb.events switched", fname);
+        LOG_AS_DAEMON(LOG_INFO, "%s: lsb.events switched", fname);
 }
 
 static int
@@ -6514,7 +6514,7 @@ writeHostCtrlEvent(FILE *fp)
 
         memset(&rec, 0, sizeof(rec));
         rec.eventLog.hostCtrlLog = *ctrlPtr->hostCtrlLog;
-        putEventRecTo(fp, &rec, EVENT_HOST_CTRL, ctrlPtr->time);
+        writeEventRec(fp, &rec, EVENT_HOST_CTRL, ctrlPtr->time);
 
     } END_FOR_EACH_HTAB_ENTRY;
 
@@ -6700,7 +6700,7 @@ writeQueueCtrlEvent(FILE *fp)
 
             memset(&rec, 0, sizeof(rec));
             rec.eventLog.queueCtrlLog = *ctrlPtr->queueCtrlLog;
-            putEventRecTo(fp, &rec, EVENT_QUEUE_CTRL, ctrlPtr->time);
+            writeEventRec(fp, &rec, EVENT_QUEUE_CTRL, ctrlPtr->time);
 
         } END_FOR_EACH_HTAB_ENTRY;
     }
