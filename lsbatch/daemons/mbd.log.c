@@ -245,7 +245,6 @@ static void    destroyHostCtrlEvent(void *);
 static void    saveHostCtrlEvent(struct hostCtrlLog *, const time_t);
 static void    writeHostCtrlEvent(FILE *);
 static void    log_hostStatusAtSwitch(const struct hostCtrlEvent *);
-static int     log_hostStatusAtSwitchTo(FILE *, const struct hostCtrlEvent *);
 
 struct queueCtrlEvent {
     time_t                 time;
@@ -262,7 +261,6 @@ static void    saveQueueCtrlEvent(struct queueCtrlLog *, const time_t);
 static void    queueTableUpdate(hTab *, struct queueCtrlLog *);
 static void    writeQueueCtrlEvent(FILE *);
 static void    log_queueStatusAtSwitch(const struct queueCtrlEvent *);
-static int     log_queueStatusAtSwitchTo(FILE *, const struct queueCtrlEvent *);
 
 extern time_t lsb_getAcctFileTime(char *);
 
@@ -6499,6 +6497,7 @@ static void
 writeHostCtrlEvent(FILE *fp)
 {
     struct hostCtrlEvent  *ctrlPtr;
+    struct eventRec        rec;
     hEnt                  *hEntry;
     char                  *key;
 
@@ -6506,29 +6505,19 @@ writeHostCtrlEvent(FILE *fp)
 
         ctrlPtr = (struct hostCtrlEvent *)hEntry->hData;
 
-
         ctrlPtr->hostCtrlLog->opCode = HOST_CLOSE;
 
-        if (fp == NULL)
+        if (fp == NULL) {
             log_hostStatusAtSwitch(ctrlPtr);
-        else
-            log_hostStatusAtSwitchTo(fp, ctrlPtr);
+            continue;
+        }
+
+        memset(&rec, 0, sizeof(rec));
+        rec.eventLog.hostCtrlLog = *ctrlPtr->hostCtrlLog;
+        putEventRecTo(fp, &rec, EVENT_HOST_CTRL, ctrlPtr->time);
 
     } END_FOR_EACH_HTAB_ENTRY;
 
-}
-
-/* Serialize one saved HOST_CTRL record into the given stream.
- */
-static int
-log_hostStatusAtSwitchTo(FILE *fp, const struct hostCtrlEvent *ctrlPtr)
-{
-    struct eventRec rec;
-
-    memset(&rec, 0, sizeof(rec));
-    rec.eventLog.hostCtrlLog = *ctrlPtr->hostCtrlLog;
-
-    return putEventRecTo(fp, &rec, EVENT_HOST_CTRL, ctrlPtr->time);
 }
 
 static void
@@ -6682,49 +6671,41 @@ static void
 writeQueueCtrlEvent(FILE *fp)
 {
     struct queueCtrlEvent    *ctrlPtr;
+    struct eventRec           rec;
+    struct {
+        hTab *tab;
+        int   opCode;
+    }                         sets[2];
     hEnt                     *hEntry;
     char                     *key;
+    int                       i;
+
+    sets[0].tab = &closedQueueEvents;
+    sets[0].opCode = QUEUE_CLOSED;
+    sets[1].tab = &inactiveQueueEvents;
+    sets[1].opCode = QUEUE_INACTIVATE;
+
+    for (i = 0; i < 2; i++) {
+
+        FOR_EACH_HTAB_ENTRY(key, hEntry, sets[i].tab) {
+
+            ctrlPtr = (struct queueCtrlEvent *)hEntry->hData;
+
+            ctrlPtr->queueCtrlLog->opCode = sets[i].opCode;
+
+            if (fp == NULL) {
+                log_queueStatusAtSwitch(ctrlPtr);
+                continue;
+            }
+
+            memset(&rec, 0, sizeof(rec));
+            rec.eventLog.queueCtrlLog = *ctrlPtr->queueCtrlLog;
+            putEventRecTo(fp, &rec, EVENT_QUEUE_CTRL, ctrlPtr->time);
+
+        } END_FOR_EACH_HTAB_ENTRY;
+    }
 
 
-    FOR_EACH_HTAB_ENTRY(key, hEntry, &closedQueueEvents) {
-
-        ctrlPtr = (struct queueCtrlEvent *)hEntry->hData;
-
-
-        ctrlPtr->queueCtrlLog->opCode = QUEUE_CLOSED;
-        if (fp == NULL)
-            log_queueStatusAtSwitch(ctrlPtr);
-        else
-            log_queueStatusAtSwitchTo(fp, ctrlPtr);
-
-    } END_FOR_EACH_HTAB_ENTRY;
-
-    FOR_EACH_HTAB_ENTRY(key, hEntry, &inactiveQueueEvents) {
-
-        ctrlPtr = (struct queueCtrlEvent *)hEntry->hData;
-
-        ctrlPtr->queueCtrlLog->opCode = QUEUE_INACTIVATE;
-        if (fp == NULL)
-            log_queueStatusAtSwitch(ctrlPtr);
-        else
-            log_queueStatusAtSwitchTo(fp, ctrlPtr);
-
-    } END_FOR_EACH_HTAB_ENTRY;
-
-
-}
-
-/* Serialize one saved QUEUE_CTRL record into the given stream.
- */
-static int
-log_queueStatusAtSwitchTo(FILE *fp, const struct queueCtrlEvent *ctrlPtr)
-{
-    struct eventRec rec;
-
-    memset(&rec, 0, sizeof(rec));
-    rec.eventLog.queueCtrlLog = *ctrlPtr->queueCtrlLog;
-
-    return putEventRecTo(fp, &rec, EVENT_QUEUE_CTRL, ctrlPtr->time);
 }
 
 static void
