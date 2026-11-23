@@ -112,7 +112,8 @@ static char             jlogFname[MAXFILENAMELEN];
  *   1. lsb.events.tmp is always created before lsb.events.delta.
  *   2. lsb.events.0 is written before any lsb.events.tmp content and
  *      disappears only in the very last rename of the rotation.
- *   3. lsb.events.tmp is complete on disk (READY) strictly before the
+ *   3. lsb.events.tmp is complete on disk - its first line carries the
+ *      history offset instead of the placeholder - strictly before the
  *      first archive rename.
  *   4. switchLogPublish() switches the write route back to lsb.events
  *      before it unlinks lsb.events.delta.
@@ -120,7 +121,7 @@ static char             jlogFname[MAXFILENAMELEN];
  * From those four facts:
  *
  *   - a placeholder header (no digits) on .tmp  => baseline unfinished
- *   - a header with digits on .tmp              => baseline READY
+ *   - digits in the first line of .tmp          => the offset is in place
  *   - .0 exists                                 => rotation unfinished
  *   - no .tmp but a leftover .delta             => the publish succeeded
  *
@@ -144,7 +145,7 @@ static char             jlogFname[MAXFILENAMELEN];
  * decide the action; a mismatch is just reported louder.
  */
 #define RECOVER_EXPECT_ANY              0   /* startup / retry: no expectation */
-#define RECOVER_EXPECT_COMPLETE         1   /* child exited 0: READY, no .0 */
+#define RECOVER_EXPECT_COMPLETE         1   /* child exited 0: complete, no .0 */
 #define RECOVER_EXPECT_INTERRUPTED      2   /* child failed: anything partial */
 
 /* a switch child running longer than this, in seconds, is killed as
@@ -168,7 +169,7 @@ static char             jlogFname[MAXFILENAMELEN];
         errno = switchLogErrno_;                        \
     } while (0)
 
-/* header of a baseline being built; replaced by the history position (READY) */
+/* header of a baseline being built; replaced by the history offset */
 #define ELOG_BASELINE_HEADER    "#                                     \n"
 
 /* elogHeaderNumbers(): the file could not be opened or read */
@@ -3107,7 +3108,7 @@ Fail to switch lsb.events; see mbatchd error log for details");
 
 /*
  * Read the two leading numbers of an event file header: the history seek
- * position of a READY baseline, and the recorded merge point of the delta
+ * offset of a complete baseline, and the recorded merge point of the delta
  * (see deltaRecordBaselineEnd()).  Existing readers only parse the first.
  *
  * @param[in] path: Event file to inspect.
@@ -3597,7 +3598,8 @@ switchLogPublish(const char *fname)
 }
 
 /*
- * Finish a READY round: complete an interrupted rotation, merge the delta
+ * Finish a round whose baseline is complete: complete an interrupted
+ * rotation, merge the delta
  * and publish.  Also the normal commit path, with the rotation already
  * done.  No progress record is needed: renameElogFiles() resumes at the
  * gap the interrupted rotation left.  Here the remaining renames run in the
@@ -3828,14 +3830,17 @@ switchLogReplayDelta(void)
  *   -----  ------  ---  ----------------------------  ------------------
  *   -      -       -    nothing happened              none
  *   raw    yes     any  baseline unfinished           roll back
- *   READY  yes     any  baseline done                 roll forward
+ *   offset yes     any  baseline done                 roll forward
  *   -      yes     -    publish already succeeded     drop the delta
  *   raw    -       any  dead round, no events at risk drop the files
- *   READY  -       yes  delta lost, rotation not done drop the files
- *   READY  -       -    delta lost, archives rotated  publish if same
+ *   offset -       yes  delta lost, rotation not done drop the files
+ *   offset -       -    delta lost, archives rotated  publish if same
  *                                                     generation, else
  *                                                     drop
  *   -      -       yes  synchronous switch died       drop the .0
+ *
+ * "raw" is a baseline whose first line is still the placeholder (no digits),
+ * "offset" one whose first line carries the history offset.
  *
  * A lost delta only happens by hand or after a power loss on a file system
  * without ordered metadata; its events are gone either way, so the choice
@@ -3898,8 +3903,8 @@ switchLogRecover(int expect)
     }
 
     /*
-     * Step 3: READY = numbers in the baseline header; an unreadable one is not
-     * raw (its archives may already be rotated)
+     * Step 3: complete = the numbers are in the baseline's first line; an
+     * unreadable one is not raw (its archives may already be rotated)
      */
     ready = FALSE;
     if (haveTmp) {
@@ -4005,7 +4010,7 @@ switch is due", fname);
     }
 
     /*
-     * READY, delta gone (by hand or a power loss on unordered metadata):
+     * complete, delta gone (by hand or a power loss on unordered metadata):
      * .0 only says the rotation is not finished, so the round is dropped
      */
     if (haveZero) {
@@ -4226,15 +4231,15 @@ switchLogChildMain(void)
     }
 
     /*
-     * Step 5: every byte of the baseline on disk before READY, which recovery
-     * trusts, then READY itself: two barriers
+     * Step 5: every byte of the baseline on disk before the offset, which
+     * recovery trusts, then the offset itself: two barriers
      */
     if (fflush(tmpfp) != 0 || fsync(fileno(tmpfp)) < 0) {
         SWITCH_LOG(LOG_DEBUG, I18N_FUNC_S_FAIL_M, fname, "fsync", tmpElogFname);
         switchChildFail(TRUE);
     }
 
-    /* flipping READY hands the round to roll forward; not as an orphan */
+    /* writing the offset hands the round to roll forward; not as an orphan */
     switchChildCheckParent();
     rewind(tmpfp);
     fprintf(tmpfp, "#%ld", pos);
