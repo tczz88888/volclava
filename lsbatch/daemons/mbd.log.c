@@ -210,9 +210,9 @@ static int              switchLogBeginRound(void);
 static void             switchLogChildMain(void);
 static void             switchChildAbort(int);
 static int              readHeaderNumbers(const char *, long *, long *);
-static int              readDeltaMergePoint(const char *, off_t *);
+static int              readDeltaMergeOffset(const char *, off_t *);
 static void             switchLogUndoRollback(void);
-static int              writeDeltaMergePoint(off_t);
+static int              writeDeltaMergeOffset(off_t);
 static int              mergeDeltaInto(const char *, off_t, off_t *);
 static off_t            lastNewlineEnd(int, off_t);
 static int              trimToLastNewline(const char *, off_t *);
@@ -3107,7 +3107,7 @@ Fail to switch lsb.events; see mbatchd error log for details");
 /*
  * Read the two leading numbers of an event file header: the history seek
  * offset of a complete baseline, and the recorded merge point of the delta
- * (see writeDeltaMergePoint()).  Existing readers only parse the first.
+ * (see writeDeltaMergeOffset()).  Existing readers only parse the first.
  *
  * @param[in] path: Event file to inspect.
  * @param[out] first: First header number, untouched if absent; may be NULL.
@@ -3161,9 +3161,9 @@ readHeaderNumbers(const char *path, long *first, long *second)
  * @return: 0 on success, -1 on failure.
  */
 static int
-writeDeltaMergePoint(off_t baselineEnd)
+writeDeltaMergeOffset(off_t baselineEnd)
 {
-    static char fname[] = "writeDeltaMergePoint";
+    static char fname[] = "writeDeltaMergeOffset";
     char        buf[64];
     int         len;
     int         fd;
@@ -3200,7 +3200,7 @@ writeDeltaMergePoint(off_t baselineEnd)
  *          set if the delta or the target cannot be read.
  */
 static int
-readDeltaMergePoint(const char *target, off_t *point)
+readDeltaMergeOffset(const char *target, off_t *offset)
 {
     struct stat st;
     long        recorded = -1;
@@ -3235,7 +3235,7 @@ readDeltaMergePoint(const char *target, off_t *point)
     if (cc != 1 || ch != '\n')
         return 0;
 
-    *point = (off_t)recorded;
+    *offset = (off_t)recorded;
     return 1;
 }
 
@@ -3529,14 +3529,14 @@ switchLogRollback(void)
          * Step 2: find (an earlier attempt died half way) or record where
          * lsb.events ended before the merge
          */
-        if ((recorded = readDeltaMergePoint(elogFname, &truncateTo)) < 0) {
+        if ((recorded = readDeltaMergeOffset(elogFname, &truncateTo)) < 0) {
             chuser(batchId);
             return -1;
         }
 
         if (!recorded) {
             if (trimToLastNewline(elogFname, &truncateTo) < 0
-                || writeDeltaMergePoint(truncateTo) < 0) {
+                || writeDeltaMergeOffset(truncateTo) < 0) {
                 chuser(batchId);
                 return -1;
             }
@@ -3681,8 +3681,8 @@ switchLogRollForward(int expectDelta)
             return -1;
         }
 
-        if ((recorded = readDeltaMergePoint(tmpElogFname, &truncateTo)) < 0
-            || (!recorded && writeDeltaMergePoint(tmpSt.st_size) < 0)) {
+        if ((recorded = readDeltaMergeOffset(tmpElogFname, &truncateTo)) < 0
+            || (!recorded && writeDeltaMergeOffset(tmpSt.st_size) < 0)) {
             chuser(batchId);
             return -1;
         }
@@ -3713,12 +3713,12 @@ switchLogRollForward(int expectDelta)
 static void
 switchLogUndoRollback(void)
 {
-    off_t point;
+    off_t mergeOffset;
     int   fd;
     int   cc;
 
     chuser(managerId);
-    cc = readDeltaMergePoint(elogFname, &point);
+    cc = readDeltaMergeOffset(elogFname, &mergeOffset);
     if (cc == 0) {
         /* nothing recorded, so nothing was appended */
         chuser(batchId);
@@ -3733,7 +3733,7 @@ its events may be loaded twice after a restart", __func__);
         return;
     }
 
-    if (ftruncate(fd, point) < 0 || fsync(fd) < 0) {
+    if (ftruncate(fd, mergeOffset) < 0 || fsync(fd) < 0) {
         int saveErrno = errno;
 
         close(fd);
@@ -3748,7 +3748,7 @@ its events may be loaded twice after a restart", __func__);
     close(fd);
     chuser(batchId);
     LOG_AS_DAEMON(LOG_DEBUG, "switchLogUndoRollback: %s cut back to %lld bytes",
-               elogFname, (long long)point);
+               elogFname, (long long)mergeOffset);
 }
 
 /*
