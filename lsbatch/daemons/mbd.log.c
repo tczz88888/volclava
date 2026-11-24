@@ -152,6 +152,9 @@ static char             jlogFname[MAXFILENAMELEN];
  * hung (typically a blocked NFS call); a normal run takes minutes */
 #define SWITCH_CHILD_MAX_RUNTIME        3600
 
+/* while the switch child runs, report it every this many seconds */
+#define SWITCH_REMIND_RUNNING           600
+
 /* how often an unfinished switch is reported again, in seconds */
 #define SWITCH_REMIND_INTERVAL          3600
 
@@ -2594,7 +2597,31 @@ switchELog (void)
     }
 
     /*
-     * Step 2: remind once an hour of a switch that stays unfinished (parked,
+     * Step 2: while the child runs, say so every SWITCH_REMIND_RUNNING
+     * seconds; a normal run takes seconds to minutes, so a longer one means
+     * the log rotation is stuck somewhere (NFS, disk).  The next switch waits
+     * for this one, nothing is lost.
+     */
+    {
+        static time_t nextReminder = 0;
+        time_t        t = time(0);
+        int           running = (switchState == SWITCH_CHILD_RUNNING
+                                 && switchChildPid > 0 && !switchChildDone
+                                 && !switchChildKillSent);
+
+        if (!running) {
+            nextReminder = 0;
+        } else if (nextReminder == 0) {
+            nextReminder = switchStartTime + SWITCH_REMIND_RUNNING;
+        } else if (t >= nextReminder) {
+            LOG_AS_DAEMON(LOG_WARNING, "%s: lsb.events switch process <%d> still running after %d seconds", __func__, (int)switchChildPid,
+                       (int)(t - switchStartTime));
+            nextReminder = t + SWITCH_REMIND_RUNNING;
+        }
+    }
+
+    /*
+     * Step 3: remind once an hour of a switch that stays unfinished (parked,
      * or a killed child that does not exit)
      */
     {
@@ -2625,11 +2652,11 @@ has not exited for over %d hours after being killed", __func__,
     if (lastSwitchDoneTime == 0)
         lastSwitchDoneTime = time(0);
 
-    /* Step 3: nothing to do until MAX_JOB_NUM finished jobs were cleaned */
+    /* Step 4: nothing to do until MAX_JOB_NUM finished jobs were cleaned */
     if (numRemoveJobs < maxjobnum)
         return;
 
-    /* Step 4: finish an unfinished round first */
+    /* Step 5: finish an unfinished round first */
     if (switchState == SWITCH_STALLED && mSchedStage != M_STAGE_REPLAY)
         switchLogRecover(RECOVER_EXPECT_ANY);
 
@@ -2644,7 +2671,7 @@ has not exited for over %d hours after being killed", __func__,
         return;
 
     /*
-     * Step 5: the switch is always done by a child.  During the startup
+     * Step 6: the switch is always done by a child.  During the startup
      * replay no child can be forked yet: the count is kept and the first
      * periodicCheck() starts the round.
      */
