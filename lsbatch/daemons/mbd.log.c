@@ -2624,31 +2624,25 @@ switchELog (void)
     }
 
     /*
-     * Step 3: remind once an hour of a switch that stays unfinished (parked,
-     * or a killed child that does not exit)
+     * Step 3: a killed child that does not exit has no other trace; a round
+     * that stays parked reports itself on every retry (Step 4)
      */
     {
         static time_t troubleSince = 0;
         static time_t lastReminder = 0;
         time_t        t = time(0);
-        int           stalled = (switchState == SWITCH_STALLED);
         int           undead = (switchState == SWITCH_CHILD_RUNNING
                                 && switchChildKillSent);
 
-        if (!stalled && !undead) {
+        if (!undead) {
             troubleSince = lastReminder = 0;
         } else if (troubleSince == 0) {
             troubleSince = lastReminder = t;
         } else if (t - lastReminder >= SWITCH_REMIND_INTERVAL) {
             lastReminder = t;
-            if (stalled)
-                LOG_AS_DAEMON(LOG_WARNING, "%s: lsb.events switch has not \
-completed for over %d hours; retried when the next switch is due", __func__,
-                           (int)((t - troubleSince) / 3600));
-            else
-                LOG_AS_DAEMON(LOG_WARNING, "%s: lsb.events switch process <%d> \
+            LOG_AS_DAEMON(LOG_WARNING, "%s: lsb.events switch process <%d> \
 has not exited for over %d hours after being killed", __func__,
-                           (int)switchChildPid, (int)((t - troubleSince) / 3600));
+                       (int)switchChildPid, (int)((t - troubleSince) / 3600));
         }
     }
 
@@ -3982,11 +3976,8 @@ switchLogRecover(int expect)
             LOG_AS_DAEMON(LOG_ERR, "\
 %s: The lsb.events switch process reported success but did not finish; \
 recovering", fname);
-        else if (expect == RECOVER_EXPECT_INTERRUPTED)
+        else
             LOG_AS_DAEMON(LOG_WARNING, "\
-%s: Found an interrupted lsb.events switch; recovering", fname);
-        else    /* a timed retry: the hourly reminder covers reporting */
-            LOG_AS_DAEMON(LOG_DEBUG, "\
 %s: Found an interrupted lsb.events switch; recovering", fname);
     }
 
