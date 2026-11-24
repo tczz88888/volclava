@@ -155,6 +155,9 @@ static char             jlogFname[MAXFILENAMELEN];
 /* while the switch child runs, report it every this many seconds */
 #define SWITCH_REMIND_RUNNING           600
 
+/* a parked round is retried on its own this often, in seconds */
+#define SWITCH_RETRY_INTERVAL           600
+
 /* how often an unfinished switch is reported again, in seconds */
 #define SWITCH_REMIND_INTERVAL          3600
 
@@ -2652,13 +2655,27 @@ has not exited for over %d hours after being killed", __func__,
     if (lastSwitchDoneTime == 0)
         lastSwitchDoneTime = time(0);
 
-    /* Step 4: nothing to do until MAX_JOB_NUM finished jobs were cleaned */
+    /*
+     * Step 4: a parked round is retried here, on its own timer: an idle
+     * cluster cleans no jobs, and would otherwise keep the round - and the
+     * events piling up in the delta - until the next restart.  The first
+     * attempt is immediate.
+     */
+    {
+        static time_t lastTry = 0;
+
+        if (switchState != SWITCH_STALLED || mSchedStage == M_STAGE_REPLAY) {
+            lastTry = 0;
+        } else if (lastTry == 0
+                   || time(0) - lastTry >= SWITCH_RETRY_INTERVAL) {
+            lastTry = time(0);
+            switchLogRecover(RECOVER_EXPECT_ANY);
+        }
+    }
+
+    /* Step 5: nothing to do until MAX_JOB_NUM finished jobs were cleaned */
     if (numRemoveJobs < maxjobnum)
         return;
-
-    /* Step 5: finish an unfinished round first */
-    if (switchState == SWITCH_STALLED && mSchedStage != M_STAGE_REPLAY)
-        switchLogRecover(RECOVER_EXPECT_ANY);
 
     /*
      * MIN_SWITCH_PERIOD: no new round until that long after the last one
@@ -3965,8 +3982,11 @@ switchLogRecover(int expect)
             LOG_AS_DAEMON(LOG_ERR, "\
 %s: The lsb.events switch process reported success but did not finish; \
 recovering", fname);
-        else
+        else if (expect == RECOVER_EXPECT_INTERRUPTED)
             LOG_AS_DAEMON(LOG_WARNING, "\
+%s: Found an interrupted lsb.events switch; recovering", fname);
+        else    /* a timed retry: the hourly reminder covers reporting */
+            LOG_AS_DAEMON(LOG_DEBUG, "\
 %s: Found an interrupted lsb.events switch; recovering", fname);
     }
 
